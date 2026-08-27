@@ -1,0 +1,12 @@
+{
+  "slug": "rubric-comment-queue",
+  "title": "Rubric Comment Queue",
+  "territory": "utilities",
+  "user": "A teacher who must give humane, consistent writing feedback to many students while retaining control over every comment.",
+  "smallest_useful_product": "Import plain text or paste excerpts, attach a rubric criterion, choose and edit a teacher-written comment block, add one personal next step, then export CSV or copy feedback.",
+  "success_measure": "In a 30-submission pilot, a teacher completes first-pass feedback 30% faster while rating at least 90% of comments specific enough to send.",
+  "artifact_class": "web-with-backend",
+  "monetization": "subscription — encrypted storage, class rosters, and audit/deletion controls for small teams",
+  "constraints": "Minimal student data, deletion controls, encryption, no model training on submissions, accessible and accommodation-safe, teacher remains decision maker.",
+  "non_goals": ["essay scoring", "plagiarism detection", "student profiling", "automatic AI feedback"]
+}
