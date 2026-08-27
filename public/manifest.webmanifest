@@ -1,0 +1,9 @@
+{
+  "name": "Rubric Comment Queue",
+  "short_name": "Comment Queue",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F4F0E6",
+  "theme_color": "#F4F0E6",
+  "icons": [{"src":"/mark.svg","sizes":"any","type":"image/svg+xml","purpose":"any"}]
+}

@@ -60,8 +60,8 @@ visible. Controls are at least 44px tall and separated by at least 8px.
   into the editable draft, but the teacher always edits before marking ready.
 - The main forward motion is `Save & next`; it advances one paper slip and
   announces the state change. `Back` never loses work.
-- Destructive deletion requires a named confirmation. Clearing the workspace
-  offers a five-second undo.
+- Destructive deletion requires a named confirmation; cloud-backup deletion
+  explicitly leaves the local workspace untouched.
 
 ## Motion policy
 

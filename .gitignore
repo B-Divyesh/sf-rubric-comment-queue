@@ -1,6 +1,9 @@
 node_modules/
 dist/
-.env
+target/
+data/
+*.db
+*.db-shm
+*.db-wal
 *.log
-graphify-out/
 .DS_Store
