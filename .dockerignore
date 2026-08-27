@@ -1,0 +1,9 @@
+.git
+.factory/handoff.md
+assets/src
+node_modules
+dist
+target
+data
+*.db
+*.log
