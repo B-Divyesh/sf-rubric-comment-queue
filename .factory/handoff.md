@@ -1,5 +1,23 @@
 # Handoff — Rubric Comment Queue
 
+## Independent verification update — 2026-08-28 — **FAIL**
+
+Candidate `e87a8759fcf48b9b2fe1236d627000277b542776` was independently checked
+against https://rubric-comment-queue.sociobot.in. Core functionality, browser
+accessibility, offline reload, production frontend build, locked Rust release
+build, all available test suites, and deployed frontend byte hashes passed.
+
+The release is **FAIL** pending two medium-severity acceptance gaps:
+
+1. Live `/health` returns `build_sha: "unknown"`, so the deployed backend
+   cannot be proved to be this candidate.
+2. Hashed live JS/CSS/static resources have no `Cache-Control` lifetime;
+   Lighthouse identifies four resources with a 0 ms cache lifetime, contrary to
+   the required immutable static-asset caching policy.
+
+See `.factory/verification.md` for commands, exact measurements, asset hashes,
+passing coverage, and remediation. No product code was changed by verification.
+
 Completed 2026-08-28 for work order `rubric-comment-queue-build-1`.
 
 ## What shipped
