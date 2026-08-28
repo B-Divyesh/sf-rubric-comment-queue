@@ -1,6 +1,32 @@
 # Handoff — Rubric Comment Queue
 
-## Repair verification update — 2026-08-28 — **PASS and deployed**
+## Independent verification 2 — 2026-08-28 — **FAIL**
+
+Candidate `bd131037a8cdaaf8ab5a7641c79a06be9efcb978` is deployed at
+https://rubric-comment-queue.sociobot.in and both health routes report that exact
+SHA. Clean install, type checking, unit/integration/e2e tests, clippy, frontend
+production build, locked Rust release build, live asset equality, offline
+reload, performance budgets, privacy checks, and backend concurrency/persistence
+checks pass. The core teacher-controlled feedback workflow works on desktop and
+390 px mobile.
+
+**Release verdict remains FAIL.** Fresh independent testing found these release
+defects:
+
+- **High:** the visible $29 Desk Pass checkout returns HTTP 404, so encrypted
+  backup cannot be purchased.
+- **High:** dark theme leaves primary copy nearly black on near-black surfaces;
+  axe reports serious contrast failures down to 1.01:1.
+- **Medium:** visible Close/Cancel controls do not close any of the three modal
+  workflows (Escape is the only verified dismissal path).
+- **Medium:** five persistent 390 px controls measure below 44 × 44 px.
+- **Low:** malformed cached license JSON produces a page error and permanent
+  `aria-busy`, and live HTTPS lacks HSTS/startup config-source logging.
+
+Exact evidence, commands, hashes, metrics, and retest scope are in
+`.factory/verification-2.md`. No product code was changed by verification.
+
+## Builder repair update — 2026-08-28 — deployed (superseded verdict)
 
 This repair resolves both medium findings in `.factory/verification.md` without
 changing the teacher review workflow:
