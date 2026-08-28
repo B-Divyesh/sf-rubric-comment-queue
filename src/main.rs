@@ -151,8 +151,8 @@ fn sqlite_parent(url: &str) -> Option<PathBuf> {
 fn build_router(state: AppState, frontend: PathBuf) -> Router {
     let governor = Arc::new(
         GovernorConfigBuilder::default()
-            .per_second(8)
-            .burst_size(40)
+            .per_millisecond(10)
+            .burst_size(200)
             .finish()
             .expect("rate limit config"),
     );
@@ -168,6 +168,7 @@ fn build_router(state: AppState, frontend: PathBuf) -> Router {
     let static_files =
         ServeDir::new(&frontend).fallback(ServeFile::new(frontend.join("index.html")));
     Router::new()
+        .route("/health", get(health))
         .nest("/api", api)
         .fallback_service(static_files)
         .layer(middleware::from_fn(security_headers))
@@ -315,6 +316,7 @@ fn internal(error: sqlx::Error) -> ApiError {
 }
 
 async fn security_headers(request: Request<Body>, next: Next) -> Response {
+    let is_api = request.uri().path().starts_with("/api/");
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     headers.insert(
@@ -330,6 +332,9 @@ async fn security_headers(request: Request<Body>, next: Next) -> Response {
         HeaderValue::from_static("same-origin"),
     );
     headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://api.sociobot.in; base-uri 'self'; frame-ancestors 'none'; form-action 'self' https://api.sociobot.in"));
+    if is_api {
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    }
     response
 }
 

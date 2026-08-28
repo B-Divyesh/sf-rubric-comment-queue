@@ -8,3 +8,6 @@ data/
 *.log
 .DS_Store
 graphify-out/
+test-results/
+playwright-report/
+.factory/evidence/

@@ -10,6 +10,12 @@ describe('plain-text import', () => {
   });
 
   it('ignores empty input', () => expect(parsePlainText(' \n ')).toEqual([]));
+
+  it('keeps paragraph breaks inside one response', () => {
+    const items = parsePlainText('# Roster 7\nFirst paragraph.\n\nSecond paragraph.');
+    expect(items).toHaveLength(1);
+    expect(items[0].excerpt).toContain('First paragraph.\n\nSecond paragraph.');
+  });
 });
 
 describe('export', () => {

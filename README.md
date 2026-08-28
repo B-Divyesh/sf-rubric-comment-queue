@@ -45,7 +45,7 @@ Backend configuration is environment-only:
 - `FRONTEND_DIR` — built frontend directory, default `dist`
 - `BILLING_API_BASE` — Sociobot billing base, default production API
 
-Persist `/app/data` when running the container. `GET /api/health` includes the
+Persist `/app/data` when running the container. `GET /health` includes the
 build SHA. Logs are structured JSON and shutdown is graceful.
 
 ## Privacy and scope

@@ -51,7 +51,7 @@ export function emptyWorkspace(): Workspace {
 export function parsePlainText(input: string): Submission[] {
   const normalized = input.replace(/\r\n/g, '\n').trim();
   if (!normalized) return [];
-  return normalized.split(/\n\s*\n(?:\s*---\s*\n\s*\n)?|\n\s*---\s*\n/g).map((part, index) => {
+  return normalized.split(/\n\s*---\s*\n/g).map((part, index) => {
     const lines = part.trim().split('\n');
     const named = lines[0]?.match(/^#{1,3}\s+(.+)/);
     const label = named ? named[1].trim() : `Response ${index + 1}`;

@@ -43,7 +43,12 @@
   function persist(message?: string) {
     workspace.updatedAt = new Date().toISOString();
     workspace = { ...workspace, submissions: [...workspace.submissions], comments: [...workspace.comments] };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace));
+    } catch {
+      announce('This browser could not save the latest change. Export a local backup, then remove unneeded responses.');
+      return;
+    }
     if (message) announce(message);
   }
 
@@ -313,7 +318,7 @@
       <h2>Minimal service data</h2>
       <p>We count an aggregate page view and retain ordinary short-lived server logs for reliability. There are no advertising cookies, analytics scripts, model training, or student profiles. Billing and license verification are handled by Sociobot/Dodo as merchant of record.</p>
       <h2>Your controls</h2>
-      <p>Delete individual responses in the queue, clear site data in your browser, or overwrite/delete your encrypted backup. Contact privacy@sociobot.in for a backup deletion request tied to a license.</p>
+      <p>Delete individual responses in the queue, clear site data in your browser, or use “Delete cloud backup” inside Desk Pass. You may also contact privacy@sociobot.in for a deletion request tied to a license.</p>
     {:else}
       <h1>Terms of use</h1>
       <p class="lede">Rubric Comment Queue is a teacher-controlled writing feedback utility.</p>
