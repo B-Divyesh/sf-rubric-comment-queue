@@ -1,4 +1,8 @@
 # syntax=docker/dockerfile:1
+ARG BUILD_SHA=dev
+ARG GIT_SHA=dev
+ARG SOURCE_COMMIT=dev
+
 FROM node:22-alpine AS frontend
 WORKDIR /build
 COPY package.json package-lock.json ./
@@ -14,7 +18,7 @@ WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY migrations ./migrations
 COPY src/main.rs ./src/main.rs
-ARG BUILD_SHA=unknown
+ARG BUILD_SHA=dev
 ENV BUILD_SHA=$BUILD_SHA
 RUN cargo build --release --locked
 

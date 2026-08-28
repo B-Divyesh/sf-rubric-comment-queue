@@ -1,24 +1,26 @@
 # Handoff — Rubric Comment Queue
 
-## Independent verification update — 2026-08-28 — **FAIL**
+## Repair verification update — 2026-08-28 — **PASS locally; deployment follows this handoff**
 
-Candidate `e87a8759fcf48b9b2fe1236d627000277b542776` was independently checked
-against https://rubric-comment-queue.sociobot.in. Core functionality, browser
-accessibility, offline reload, production frontend build, locked Rust release
-build, all available test suites, and deployed frontend byte hashes passed.
+This repair resolves both medium findings in `.factory/verification.md` without
+changing the teacher review workflow:
 
-The release is **FAIL** pending two medium-severity acceptance gaps:
+1. The Dockerfile declares `BUILD_SHA=dev` globally and passes it into the Rust
+   compile stage. `/health` now refuses the ambiguous `unknown` value; a
+   production build compiled with `BUILD_SHA=repair-candidate-e87a8759` returned
+   `{"status":"ok","build_sha":"repair-candidate-e87a8759"}`.
+2. The backend now sends `Cache-Control: public, max-age=31536000, immutable`
+   for JS, CSS, images, SVG, and font assets. HTML and app routes (`/`,
+   `/privacy`, `/terms`) revalidate with `no-cache`; `/health` and `/api/*`
+   remain `no-store`. This preserves service-worker and release discovery.
 
-1. Live `/health` returns `build_sha: "unknown"`, so the deployed backend
-   cannot be proved to be this candidate.
-2. Hashed live JS/CSS/static resources have no `Cache-Control` lifetime;
-   Lighthouse identifies four resources with a 0 ms cache lifetime, contrary to
-   the required immutable static-asset caching policy.
+Exact regression coverage is in Rust: `health_reports_ok` asserts that health
+never reports `unknown`, and
+`caching_keeps_release_documents_fresh_and_assets_immutable` checks the root,
+legal pages, health/API, hashed JS, hero image, icon, and service worker cache
+policies through the complete Axum router.
 
-See `.factory/verification.md` for commands, exact measurements, asset hashes,
-passing coverage, and remediation. No product code was changed by verification.
-
-Completed 2026-08-28 for work order `rubric-comment-queue-build-1`.
+Completed locally 2026-08-28 for work order `rubric-comment-queue-repair-1`.
 
 ## What shipped
 
@@ -62,7 +64,7 @@ npm ci
 npm run check
 npm test
 npm run build
-cargo test
+cargo test --locked
 cargo build --release --locked
 npm run test:e2e
 ```
@@ -82,25 +84,32 @@ its deploy output is `dist/`, with `dist/index.html` at the root.
 - `npm run check`: 0 errors, 0 warnings.
 - `npm test`: 5/5 Vitest tests passed (import boundaries/paragraphs, feedback,
   CSV, default bank).
-- `cargo test`: 3/3 integration tests passed (health, anonymous page count,
+- `cargo test --locked`: 4/4 integration tests passed (health identity,
+  cache-policy regression, anonymous page count,
   authorization, encrypted backup round trip and deletion).
 - `npm run test:e2e`: 8/8 Playwright tests passed across Desktop Chrome and
   Pixel 5, covering import → edit → personalized ready state → CSV export,
   keyboard shortcut, paid unlock, legal page, and offline editing.
 - Playwright axe: zero serious or critical violations on empty and legal states,
   desktop and mobile.
-- Factory `verify-url.sh`: HTTP 200, 636 ms load, no console/page errors,
-  title present, `lang=en`, exactly one h1, main landmark present, 0 images
-  missing alt, and 0 unlabeled buttons.
-- Lighthouse 12.8.2 mobile: Performance 100, Accessibility 100, Best Practices
-  100, SEO 100; FCP 1.1 s, LCP 1.6 s, TBT 30 ms, CLS 0.
+- Lighthouse 13.4.1 mobile after the repair: Performance 100, Accessibility
+  100, Best Practices 100, SEO 100; FCP 1.1 s, LCP 1.6 s, TBT 30 ms, CLS 0,
+  and `cache-insight` 1.0.
 - Bundles: initial JS 62.13 KB (23.73 KB gzip), CSS 13.95 KB (3.93 KB gzip),
   no runtime CDN assets, and no webfont payload.
 - Release load smoke: autocannon fixed at 100 req/s for 10 seconds against
   `/health`; 1,000 requests, 102.2 req/s average, 1.47 ms average latency,
   14 ms maximum latency.
 - `npm audit --omit=dev`: 0 production vulnerabilities.
-- `cargo build --release --locked`: passed.
+- `cargo build --release --locked`: passed with an explicit build identity.
+- Production response-policy smoke on the release binary: build identity was
+  `repair-candidate-e87a8759`; hashed JS, hero WebP, and SVG each returned
+  `public, max-age=31536000, immutable`; `/` and `/privacy` returned
+  `no-cache`; `/api/health` returned `no-store`; all 100 concurrent
+  `POST /api/pageview` requests returned 204.
+- `verify-url.sh` against the repair server: HTTP 200, 641 ms load, no console
+  or page errors, title and `lang=en` present, exactly one h1 and main
+  landmark, 0 images missing alt, and 0 unlabeled buttons.
 
 ## Known gaps and factory next steps
 

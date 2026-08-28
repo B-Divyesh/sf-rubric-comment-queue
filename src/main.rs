@@ -184,8 +184,17 @@ fn build_router(state: AppState, frontend: PathBuf) -> Router {
 async fn health() -> Json<Health> {
     Json(Health {
         status: "ok",
-        build_sha: option_env!("BUILD_SHA").unwrap_or("development"),
+        build_sha: build_identity(),
     })
+}
+
+/// The release builder supplies BUILD_SHA at compile time. Keep local builds
+/// identifiable too, but never report the ambiguous `unknown` value that made
+/// a deployed backend impossible to tie to a source revision.
+fn build_identity() -> &'static str {
+    option_env!("BUILD_SHA")
+        .filter(|sha| !sha.is_empty() && *sha != "unknown")
+        .unwrap_or("development")
 }
 
 async fn pageview(State(state): State<AppState>) -> Result<StatusCode, ApiError> {
@@ -316,7 +325,8 @@ fn internal(error: sqlx::Error) -> ApiError {
 }
 
 async fn security_headers(request: Request<Body>, next: Next) -> Response {
-    let is_api = request.uri().path().starts_with("/api/");
+    let path = request.uri().path();
+    let cache_control = cache_control_for(path);
     let mut response = next.run(request).await;
     let headers = response.headers_mut();
     headers.insert(
@@ -332,10 +342,48 @@ async fn security_headers(request: Request<Body>, next: Next) -> Response {
         HeaderValue::from_static("same-origin"),
     );
     headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://api.sociobot.in; base-uri 'self'; frame-ancestors 'none'; form-action 'self' https://api.sociobot.in"));
-    if is_api {
-        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    if let Some(cache_control) = cache_control {
+        headers.insert(
+            header::CACHE_CONTROL,
+            HeaderValue::from_static(cache_control),
+        );
     }
     response
+}
+
+/// Cache files that are safe to reuse for a year, but always revalidate the
+/// document and service-worker entry points that discover a new release.
+fn cache_control_for(path: &str) -> Option<&'static str> {
+    const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+    const REVALIDATE: &str = "no-cache";
+
+    if path == "/health" || path.starts_with("/api/") {
+        return Some("no-store");
+    }
+    if matches!(path, "/" | "/privacy" | "/terms")
+        || path.ends_with(".html")
+        || matches!(path, "/sw.js" | "/manifest.webmanifest" | "/robots.txt")
+    {
+        return Some(REVALIDATE);
+    }
+    if matches!(
+        path.rsplit_once('.').map(|(_, extension)| extension),
+        Some(
+            "js" | "css"
+                | "svg"
+                | "webp"
+                | "avif"
+                | "png"
+                | "jpg"
+                | "jpeg"
+                | "gif"
+                | "ico"
+                | "woff2"
+        )
+    ) {
+        return Some(IMMUTABLE);
+    }
+    None
 }
 
 async fn shutdown_signal() {
@@ -405,6 +453,43 @@ mod tests {
             serde_json::from_slice::<serde_json::Value>(&body).unwrap()["status"],
             "ok"
         );
+        assert_ne!(
+            serde_json::from_slice::<serde_json::Value>(&body).unwrap()["build_sha"],
+            "unknown"
+        );
+    }
+
+    #[tokio::test]
+    async fn caching_keeps_release_documents_fresh_and_assets_immutable() {
+        let app = test_app().await;
+        for (path, expected) in [
+            ("/", "no-cache"),
+            ("/privacy", "no-cache"),
+            ("/terms", "no-cache"),
+            ("/health", "no-store"),
+            ("/api/health", "no-store"),
+            (
+                "/assets/index-abcd1234.js",
+                "public, max-age=31536000, immutable",
+            ),
+            (
+                "/queue-desk-640.webp",
+                "public, max-age=31536000, immutable",
+            ),
+            ("/mark.svg", "public, max-age=31536000, immutable"),
+            ("/sw.js", "no-cache"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(request().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(
+                response.headers().get(header::CACHE_CONTROL).unwrap(),
+                expected,
+                "unexpected cache policy for {path}"
+            );
+        }
     }
 
     #[tokio::test]
