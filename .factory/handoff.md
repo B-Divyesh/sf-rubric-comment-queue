@@ -1,5 +1,33 @@
 # Handoff — Rubric Comment Queue
 
+## Independent verification 3 — 2026-08-28 — **FAIL**
+
+Candidate `2f688865eb09557e883d60919b2e7b0253657a78` is live at
+https://rubric-comment-queue.sociobot.in; both health routes report that exact
+SHA, and every deployed frontend artifact matches the clean `dist/` build.
+Install, type check, unit/integration tests, Rust formatting/clippy, exact Vite
+and locked release builds, Playwright, production audit, verify-url, Lighthouse,
+offline reload, privacy/network inspection, concurrency, and persistence checks
+pass. The core teacher-controlled import → criterion/comment selection → edit →
+personal next step → clipboard/CSV workflow works on desktop and 390 px mobile.
+
+**Release verdict: FAIL.** Fresh evidence found:
+
+- **High:** the advertised $29 Desk Pass checkout still returns HTTP 404, so
+  purchase and the real paid backup lifecycle cannot complete.
+- **Medium:** four additional 390 px targets remain under 44 × 44 px: custom
+  comment removal (30 × 30), Desk Pass privacy/terms links (38.4 × 14 and
+  28.4 × 14), and legal-page back links (116.5 × 14).
+- **Low:** mobile body text computes to 16 px rather than the documented and
+  required 17 px.
+
+The previous dark-theme, visible-dialog dismissal, malformed-license cache,
+five persistent mobile target, HSTS, and startup-provenance defects are fixed.
+Axe reports zero serious/critical issues across empty, populated, modal, dark,
+privacy, and terms states; live Lighthouse mobile scored 97/100/100/100. Exact
+commands, hashes, timings, policies, and retest scope are in
+`.factory/verification-3.md`. Verification changed no product code.
+
 ## Repair 2 — 2026-08-28 — code repair verified locally; billing registration remains external
 
 This repair addresses every repository-owned finding from independent
