@@ -96,12 +96,14 @@ async fn main() {
         )
         .init();
 
-    let port: u16 = env::var("PORT")
+    let (port, port_source) = env::var("PORT")
         .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(8080);
-    let database_url = env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite://data/rubric-comment-queue.db?mode=rwc".to_string());
+        .and_then(|value| value.parse().ok().map(|port| (port, "supplied")))
+        .unwrap_or((8080, "default"));
+    let (database_url, database_url_source) = env_or_default(
+        "DATABASE_URL",
+        "sqlite://data/rubric-comment-queue.db?mode=rwc",
+    );
     if let Some(path) = sqlite_parent(&database_url) {
         std::fs::create_dir_all(path).expect("database directory must be writable");
     }
@@ -114,22 +116,31 @@ async fn main() {
         .run(&pool)
         .await
         .expect("database migrations");
+    let (billing_base, billing_api_base_source) =
+        env_or_default("BILLING_API_BASE", "https://api.sociobot.in/api/v1");
+    let (frontend, frontend_dir_source) = env_or_default("FRONTEND_DIR", "dist");
     let state = AppState {
         pool,
         client: reqwest::Client::builder()
             .timeout(Duration::from_secs(8))
             .build()
             .expect("http client"),
-        billing_base: env::var("BILLING_API_BASE")
-            .unwrap_or_else(|_| "https://api.sociobot.in/api/v1".to_string()),
+        billing_base,
         verify_billing: true,
     };
-    let frontend = env::var("FRONTEND_DIR").unwrap_or_else(|_| "dist".to_string());
     let app = build_router(state, PathBuf::from(frontend));
     let address = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .expect("listen address");
+    info!(
+        port,
+        port_source,
+        database_url_source,
+        frontend_dir_source,
+        billing_api_base_source,
+        "runtime configuration resolved"
+    );
     info!(port, "rubric comment queue listening");
     axum::serve(
         listener,
@@ -138,6 +149,16 @@ async fn main() {
     .with_graceful_shutdown(shutdown_signal())
     .await
     .expect("server error");
+}
+
+/// Resolve non-secret runtime settings without ever writing their values to the
+/// startup log. The deployment only supplies `PORT`; the other defaults keep a
+/// first boot usable and the source labels make that visible to operators.
+fn env_or_default(name: &str, default: &str) -> (String, &'static str) {
+    match env::var(name) {
+        Ok(value) if !value.is_empty() => (value, "supplied"),
+        _ => (default.to_owned(), "default"),
+    }
 }
 
 fn sqlite_parent(url: &str) -> Option<PathBuf> {
@@ -341,6 +362,10 @@ async fn security_headers(request: Request<Body>, next: Next) -> Response {
         HeaderName::from_static("cross-origin-opener-policy"),
         HeaderValue::from_static("same-origin"),
     );
+    headers.insert(
+        header::STRICT_TRANSPORT_SECURITY,
+        HeaderValue::from_static("max-age=31536000; includeSubDomains"),
+    );
     headers.insert(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static("default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https://api.sociobot.in; base-uri 'self'; frame-ancestors 'none'; form-action 'self' https://api.sociobot.in"));
     if let Some(cache_control) = cache_control {
         headers.insert(
@@ -490,6 +515,29 @@ mod tests {
                 "unexpected cache policy for {path}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn sends_hsts_with_the_secure_response_policy() {
+        let response = test_app()
+            .await
+            .oneshot(request().uri("/").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(
+            response
+                .headers()
+                .get(header::STRICT_TRANSPORT_SECURITY)
+                .unwrap(),
+            "max-age=31536000; includeSubDomains"
+        );
+    }
+
+    #[test]
+    fn configuration_defaults_have_explicit_provenance() {
+        let (value, source) = env_or_default("RCQ_TEST_MISSING_SETTING", "fallback");
+        assert_eq!(value, "fallback");
+        assert_eq!(source, "default");
     }
 
     #[tokio::test]

@@ -1,5 +1,65 @@
 # Handoff — Rubric Comment Queue
 
+## Repair 2 — 2026-08-28 — code repair verified locally; billing registration remains external
+
+This repair addresses every repository-owned finding from independent
+verification 2 while preserving the teacher-controlled local workflow and the
+existing Sociobot checkout integration:
+
+- Dark mode now applies `--ink` at the inheritance root and body. Playwright
+  axe has zero serious/critical findings in dark empty, populated, Desk Pass,
+  privacy, and terms states on desktop and mobile.
+- All visible dialog dismissal controls explicitly call `HTMLDialogElement.close`.
+  Keyboard and pointer regression coverage verifies import close/cancel, comment
+  close/cancel, backup close, and focus return to each opener.
+- The brand link, Desk Pass button, local-backup button, and footer legal links
+  have 44 px minimum hit areas. The 390 x 844 mobile regression measures all
+  five controls directly.
+- Malformed cached license-verdict JSON is now discarded in a guarded path,
+  announces recovery, and finishes startup. Regression coverage asserts no page
+  error, `aria-busy="false"`, and removal of the bad cache value.
+- HTTPS transport policy now includes
+  `Strict-Transport-Security: max-age=31536000; includeSubDomains`; Rust route
+  coverage protects the header. Startup logs now state whether `PORT`, database,
+  frontend directory, and billing base were supplied or defaulted, without
+  logging values or secrets. A clean `PORT`-only release run reported
+  `port_source="supplied"` and all other sources `"default"`.
+
+The advertised Desk Pass checkout remains correctly wired to the required
+`https://api.sociobot.in/api/v1/products/rubric-comment-queue/checkout` endpoint,
+but both live and pilot endpoints return `404 {"error":"enabled factory
+product"}`. The product is absent from the public enabled-products list. This
+is an external Sociobot billing registration/enablement task; repository rules
+prohibit changing billing configuration, so no misleading replacement checkout
+or fake unlock was introduced. A real purchase, return token, valid/revoked
+verification, and encrypted cloud lifecycle cannot be retested until the
+factory registers the product and return URL.
+
+### Repair verification (local)
+
+```sh
+npm ci
+npm run check                 # 0 errors, 0 warnings
+npm test                      # 5/5
+npm run build                 # dist/
+cargo test --locked           # 6/6
+cargo clippy --all-targets --all-features --locked -- -D warnings
+BUILD_SHA=repair-local-20260828 cargo build --release --locked
+npm run test:e2e              # 15 passed, 1 desktop-only mobile test skipped
+npm audit --omit=dev --audit-level=low  # 0 production vulnerabilities
+```
+
+`verify-url.sh` against the PORT-only release binary passed (200; title,
+`lang=en`, one h1, main, image alt, and button labels). Local mobile Lighthouse
+13.4.1 scored Performance **100**, Accessibility **100**, Best Practices
+**100**, SEO **100** (FCP 1.1 s, LCP 1.5 s, CLS 0). The service worker was
+activated/controlling with cache `rcq-shell-v1`; a 390 px offline reload
+rendered the app with no page errors. A local 100 req/s, 10 s health smoke
+completed 1,000 requests (101.5 req/s average; 1.6 ms average; 13 ms max).
+
+Deployment and live identity evidence are recorded below after the configured
+container deployment completes.
+
 ## Independent verification 2 — 2026-08-28 — **FAIL**
 
 Candidate `bd131037a8cdaaf8ab5a7641c79a06be9efcb978` is deployed at

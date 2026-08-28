@@ -31,6 +31,8 @@
   let commentDialog: HTMLDialogElement;
   let backupDialog: HTMLDialogElement;
 
+  type CachedLicenseVerdict = { valid: boolean; checked: number };
+
   $: current = workspace.submissions.find((item) => item.id === workspace.currentId) ?? workspace.submissions[0];
   $: readyCount = workspace.submissions.filter((item) => item.status === 'ready').length;
   $: filteredComments = current ? workspace.comments.filter((comment) => comment.criterion === current?.criterion || comment.criterion === 'Whole response') : [];
@@ -172,9 +174,29 @@
     localStorage.setItem('rcq_theme', theme);
   }
 
+  function cachedLicenseVerdict(): CachedLicenseVerdict | null {
+    try {
+      const raw = localStorage.getItem(VERDICT_KEY);
+      if (!raw) return null;
+      const cached = JSON.parse(raw) as Partial<CachedLicenseVerdict>;
+      if (typeof cached.valid === 'boolean' && typeof cached.checked === 'number' && Number.isFinite(cached.checked)) {
+        return cached as CachedLicenseVerdict;
+      }
+      throw new Error('invalid cached license verdict');
+    } catch {
+      try {
+        localStorage.removeItem(VERDICT_KEY);
+      } catch {
+        // The free workspace must remain usable even if storage is unavailable.
+      }
+      announce('Saved license status could not be read. It was removed; your free workspace is ready.');
+      return null;
+    }
+  }
+
   async function verifyLicense(force = false) {
     if (!license || !online) return;
-    const cached = JSON.parse(localStorage.getItem(VERDICT_KEY) ?? 'null') as { valid: boolean; checked: number } | null;
+    const cached = cachedLicenseVerdict();
     if (!force && cached && Date.now() - cached.checked < 86_400_000) {
       paid = cached.valid;
       return;
@@ -273,7 +295,7 @@
       history.replaceState({}, '', `${location.pathname}${params.size ? `?${params}` : ''}${location.hash}`);
     }
     license = returned ?? localStorage.getItem(LICENSE_KEY) ?? '';
-    const cached = JSON.parse(localStorage.getItem(VERDICT_KEY) ?? 'null') as { valid: boolean; checked: number } | null;
+    const cached = cachedLicenseVerdict();
     paid = Boolean(license && cached?.valid);
     if (license) verifyLicense();
     const goOnline = () => { online = true; verifyLicense(); };
@@ -439,30 +461,30 @@
 
 <dialog bind:this={importDialog} aria-labelledby="import-title">
   <form method="dialog" on:submit={(event) => event.preventDefault()}>
-    <div class="dialog-head"><div><p class="kicker">Add to queue</p><h2 id="import-title">Import responses</h2></div><button class="icon-button" value="cancel" aria-label="Close import dialog">×</button></div>
+    <div class="dialog-head"><div><p class="kicker">Add to queue</p><h2 id="import-title">Import responses</h2></div><button class="icon-button" type="button" on:click={() => importDialog.close()} aria-label="Close import dialog">×</button></div>
     <p>Paste plain text below. Put an optional <code># label</code> on the first line, and separate responses with a blank line, three dashes, then another blank line.</p>
     <label class="file-button" for="text-file">Choose .txt file</label><input id="text-file" class="visually-hidden" type="file" accept=".txt,text/plain" on:change={readFile} />
     <label for="import-text">Response text</label>
     <textarea id="import-text" bind:value={importText} rows="10" aria-describedby={importError ? 'import-error' : 'import-help'} placeholder="# Roster 12&#10;The opening paragraph…&#10;&#10;---&#10;&#10;# Roster 13&#10;In this response…"></textarea>
     <small id="import-help">Maximum file size: 1 MB.</small>
     {#if importError}<p id="import-error" class="error" role="alert">{importError}</p>{/if}
-    <div class="dialog-actions"><button class="outline" value="cancel">Cancel</button><button class="primary" type="button" on:click={runImport}>Add to queue</button></div>
+    <div class="dialog-actions"><button class="outline" type="button" on:click={() => importDialog.close()}>Cancel</button><button class="primary" type="button" on:click={runImport}>Add to queue</button></div>
   </form>
 </dialog>
 
 <dialog bind:this={commentDialog} aria-labelledby="comment-title">
   <form method="dialog" on:submit={(event) => event.preventDefault()}>
-    <div class="dialog-head"><div><p class="kicker">Reusable language</p><h2 id="comment-title">Write a comment block</h2></div><button class="icon-button" value="cancel" aria-label="Close comment dialog">×</button></div>
+    <div class="dialog-head"><div><p class="kicker">Reusable language</p><h2 id="comment-title">Write a comment block</h2></div><button class="icon-button" type="button" on:click={() => commentDialog.close()} aria-label="Close comment dialog">×</button></div>
     <label for="comment-criterion">Rubric criterion</label><select id="comment-criterion" bind:value={commentCriterion}>{#each CRITERIA as criterion}<option>{criterion}</option>{/each}</select>
     <label for="comment-name">Short name</label><input id="comment-name" bind:value={commentTitle} maxlength="60" placeholder="Connect the evidence" />
     <label for="comment-body">Teacher-written block</label><textarea id="comment-body" bind:value={commentBody} rows="6" placeholder="Your evidence is relevant. Explain how…"></textarea>
-    <div class="dialog-actions"><button class="outline" value="cancel">Cancel</button><button class="primary" type="button" on:click={addComment} disabled={!commentTitle.trim() || !commentBody.trim()}>Save block</button></div>
+    <div class="dialog-actions"><button class="outline" type="button" on:click={() => commentDialog.close()}>Cancel</button><button class="primary" type="button" on:click={addComment} disabled={!commentTitle.trim() || !commentBody.trim()}>Save block</button></div>
   </form>
 </dialog>
 
 <dialog bind:this={backupDialog} aria-labelledby="backup-title">
   <form method="dialog" on:submit={(event) => event.preventDefault()}>
-    <div class="dialog-head"><div><p class="kicker">Optional upgrade</p><h2 id="backup-title">Encrypted desk backup</h2></div><button class="icon-button" value="cancel" aria-label="Close backup dialog">×</button></div>
+    <div class="dialog-head"><div><p class="kicker">Optional upgrade</p><h2 id="backup-title">Encrypted desk backup</h2></div><button class="icon-button" type="button" on:click={() => backupDialog.close()} aria-label="Close backup dialog">×</button></div>
     {#if paid}
       <p class="license-active">✓ Desk Pass active</p>
       <p>Choose a private passphrase. Encryption happens on this device; we cannot read the backup or recover the passphrase.</p>
