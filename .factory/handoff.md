@@ -1,6 +1,6 @@
 # Handoff — Rubric Comment Queue
 
-## Repair verification update — 2026-08-28 — **PASS locally; deployment follows this handoff**
+## Repair verification update — 2026-08-28 — **PASS and deployed**
 
 This repair resolves both medium findings in `.factory/verification.md` without
 changing the teacher review workflow:
@@ -19,6 +19,14 @@ never reports `unknown`, and
 `caching_keeps_release_documents_fresh_and_assets_immutable` checks the root,
 legal pages, health/API, hashed JS, hero image, icon, and service worker cache
 policies through the complete Axum router.
+
+The configured Azure Container App deployed image
+`sociobotregistry.azurecr.io/sf-rubric-comment-queue:99d1192cf866` from repair
+commit `99d1192cf866a931162089567fcb8a4991205753`. Live verification at
+`https://rubric-comment-queue.sociobot.in` returned that exact `build_sha`;
+the hashed JS/CSS, hero image, and SVG returned the one-year immutable policy,
+while `/`, `/privacy`, and `/api/health` returned `no-cache`, `no-cache`, and
+`no-store` respectively.
 
 Completed locally 2026-08-28 for work order `rubric-comment-queue-repair-1`.
 
