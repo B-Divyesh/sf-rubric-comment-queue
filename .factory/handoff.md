@@ -57,8 +57,28 @@ activated/controlling with cache `rcq-shell-v1`; a 390 px offline reload
 rendered the app with no page errors. A local 100 req/s, 10 s health smoke
 completed 1,000 requests (101.5 req/s average; 1.6 ms average; 13 ms max).
 
-Deployment and live identity evidence are recorded below after the configured
-container deployment completes.
+### Deployment and live evidence
+
+The configured Azure Container App deployment built and released
+`sociobotregistry.azurecr.io/sf-rubric-comment-queue:5256a202f522` from source
+commit `5256a202f522f0290edae7131ec7b92046de0aa3`. Live `/health` and
+`/api/health` both returned that exact SHA. The live JS and CSS matched the
+local `dist/` byte-for-byte (JS SHA-256
+`c4ecdcb0682f925ddf212cd94589161c792e0c8c510e1b04b3d62bd01ba79b37`; CSS
+`fbecac363743ea721c679d651a9934688b574546a3bf537db841e20df04f582b`).
+
+Live `verify-url.sh` passed (HTTP 200, 673 ms, no console/page errors, title,
+language, one h1, main, alt text, and button labels). HTTPS returns the new
+HSTS policy together with the existing CSP, no-referrer policy, restrictive
+permissions policy, same-origin COOP, nosniff, and document `no-cache` policy.
+A fresh live desktop browser check found only the product origin; after dark
+selection the h1 computed to `rgb(250, 246, 234)`, import Close closed the
+dialog, and there were no page errors. At live 390 x 844 the five repaired hit
+areas measured 44 x 44, 72.4 x 44, 173 x 44, 44 x 44, and 44 x 44 px.
+
+The live checkout endpoint was retested after deployment and still returns
+HTTP 404. This remains the sole release blocker and must be cleared by factory
+billing product registration before the paid backup lifecycle can be certified.
 
 ## Independent verification 2 — 2026-08-28 — **FAIL**
 
