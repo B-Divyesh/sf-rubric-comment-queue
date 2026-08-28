@@ -121,10 +121,9 @@ its deploy output is `dist/`, with `dist/index.html` at the root.
 
 ## Known gaps and factory next steps
 
-- Docker is not installed in this worker image, so `docker build` could not be
-  executed here. Both constituent clean builds (`npm ci`/Vite and locked Rust
-  release) pass; the factory should run the Docker build in its normal image
-  pipeline.
+- Docker is not installed in this worker image, so a local `docker build` was
+  not run. The configured Azure ACR container build did succeed and deployed
+  the verified image named above; both constituent clean builds also pass.
 - The factory still needs to register the test/live Sociobot paid product and
   confirm checkout return URLs. No product ID or payment-provider secret is
   hardcoded.
