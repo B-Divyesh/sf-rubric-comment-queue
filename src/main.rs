@@ -13,7 +13,7 @@ use sha2::{Digest, Sha256};
 use sqlx::{
     migrate::MigrateError,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
-    SqlitePool,
+    Connection, SqliteConnection, SqlitePool,
 };
 use std::{env, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 use tokio::signal;
@@ -114,14 +114,14 @@ async fn main() {
     let options = SqliteConnectOptions::from_str(&database_url)
         .expect("valid SQLite database URL")
         .busy_timeout(Duration::from_secs(30));
+    migrate_database(&options)
+        .await
+        .expect("database migrations after retry window");
     let pool = SqlitePoolOptions::new()
-        .max_connections(5)
+        .max_connections(1)
         .connect_with(options)
         .await
         .expect("database connection");
-    migrate_database(&pool)
-        .await
-        .expect("database migrations after retry window");
     let (billing_base, billing_api_base_source) =
         env_or_default("BILLING_API_BASE", "https://api.sociobot.in/api/v1");
     let (frontend, frontend_dir_source) = env_or_default("FRONTEND_DIR", "dist");
@@ -184,10 +184,15 @@ fn sqlite_parent(url: &str) -> Option<PathBuf> {
         .filter(|parent| !parent.as_os_str().is_empty())
 }
 
-async fn migrate_database(pool: &SqlitePool) -> Result<(), MigrateError> {
+async fn migrate_database(options: &SqliteConnectOptions) -> Result<(), MigrateError> {
     const ATTEMPTS: u8 = 12;
     for attempt in 1..=ATTEMPTS {
-        match sqlx::migrate!().run(pool).await {
+        let mut connection = SqliteConnection::connect_with(options)
+            .await
+            .map_err(MigrateError::Execute)?;
+        let result = sqlx::migrate!().run(&mut connection).await;
+        let _ = connection.close().await;
+        match result {
             Ok(()) => return Ok(()),
             Err(_error) if attempt < ATTEMPTS => {
                 warn!(attempt, "database migration is busy; retrying");
@@ -800,16 +805,8 @@ mod tests {
         let dir = tempdir().unwrap();
         let database = dir.path().join("concurrent-start.db");
         let url = format!("sqlite://{}?mode=rwc", database.display());
-        let first = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect(&url)
-            .await
-            .unwrap();
-        let second = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect(&url)
-            .await
-            .unwrap();
+        let first = SqliteConnectOptions::from_str(&url).unwrap();
+        let second = SqliteConnectOptions::from_str(&url).unwrap();
         let (first_result, second_result) =
             tokio::join!(migrate_database(&first), migrate_database(&second));
         assert!(first_result.is_ok());
