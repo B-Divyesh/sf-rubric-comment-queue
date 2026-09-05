@@ -12,6 +12,7 @@ async function importOneResponse(page: Page, label = 'Roster 12', excerpt = 'A c
   await page.getByRole('button', { name: /Add (my )?responses/ }).first().click();
   await page.getByLabel('Response text').fill(`# ${label}\n${excerpt}`);
   await page.getByRole('button', { name: 'Add to queue' }).click();
+  await page.getByRole('button', { name: new RegExp(label) }).click();
   await expect(page.getByRole('heading', { name: label })).toBeVisible();
 }
 
@@ -40,6 +41,15 @@ test('@claim:demo-isolation keeps sample changes out of the real workspace', asy
   await expect(page.getByRole('heading', { name: 'Real roster 05' })).toBeVisible();
   await expect(page.getByLabel(/Feedback draft/)).toHaveValue('');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('demo:rcq_workspace:v1'))).toBeNull();
+});
+
+test('leaving the demo from navigation discards the sample namespace', async ({ page }) => {
+  await page.goto('/demo');
+  await page.getByLabel(/Feedback draft/).fill('Discard this sample-only edit.');
+  await page.getByRole('link', { name: 'Rubric Comment Queue home' }).click();
+  await expect(page).toHaveURL('/');
+  await expect.poll(() => page.evaluate(() => localStorage.getItem('demo:rcq_workspace:v1'))).toBeNull();
+  await expect(page.getByRole('heading', { name: 'Add responses to start reviewing' })).toBeVisible();
 });
 
 test('demo hides licensed backup state and keeps its label visible while scrolling', async ({ browser }) => {
@@ -86,10 +96,11 @@ test('first screen states the job, audience, next action, and three facts before
 });
 
 test('@claim:text-import imports a text file and rejects a file over 1 MB', async ({ page }) => {
-  await page.getByRole('button', { name: 'Add my responses' }).click();
+  await page.goto('/demo');
+  await page.getByRole('button', { name: 'Add responses' }).click();
   await page.getByLabel('Choose .txt file').setInputFiles({ name: 'class.txt', mimeType: 'text/plain', buffer: Buffer.from('# Roster 31\nA file-based response.') });
   await page.getByRole('button', { name: 'Add to queue' }).click();
-  await expect(page.getByRole('heading', { name: 'Roster 31' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Roster 31/ })).toBeVisible();
   await page.getByRole('button', { name: 'Add responses' }).click();
   const boundaryPrefix = Buffer.from('# Boundary file\n');
   await page.getByLabel('Choose .txt file').setInputFiles({ name: 'boundary.txt', mimeType: 'text/plain', buffer: Buffer.concat([boundaryPrefix, Buffer.alloc(1_000_000 - boundaryPrefix.length, 65)]) });
@@ -98,6 +109,17 @@ test('@claim:text-import imports a text file and rejects a file over 1 MB', asyn
   await page.getByRole('button', { name: 'Add responses' }).click();
   await page.getByLabel('Choose .txt file').setInputFiles({ name: 'too-large.txt', mimeType: 'text/plain', buffer: Buffer.alloc(1_000_001, 65) });
   await expect(page.getByRole('alert')).toContainText('over 1 MB');
+});
+
+test('@claim:plain-text-format splits three-dash separators and supplies optional labels', async ({ page }) => {
+  await page.goto('/demo');
+  await page.getByRole('button', { name: 'Add responses' }).click();
+  await page.getByLabel('Response text').fill('# Roster 31\nA labelled response.\n\n---\n\nAn unlabelled response with two paragraphs.\n\nThe second paragraph stays with it.');
+  await page.getByRole('button', { name: 'Add to queue' }).click();
+  await expect(page.getByRole('button', { name: /Roster 31/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Response 2/ })).toBeVisible();
+  await page.getByRole('button', { name: /Response 2/ }).click();
+  await expect(page.getByText('The second paragraph stays with it.')).toBeVisible();
 });
 
 test('@claim:teacher-review requires edited feedback and a personal next step', async ({ page }) => {
@@ -138,15 +160,18 @@ test('@claim:csv-export exports one data row for each sample response', async ({
 
 test('@claim:local-backup downloads a restorable workspace document', async ({ page }) => {
   await page.goto('/demo');
+  await page.getByRole('button', { name: /Roster 08/ }).click();
   const pending = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download local backup' }).click();
   const saved = JSON.parse(await downloadText(await pending));
-  expect(saved.version).toBe(1);
+  const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('demo:rcq_workspace:v1') ?? '{}'));
+  expect(saved).toEqual(stored);
   expect(saved.submissions.map((item: { label: string }) => item.label)).toEqual(['Roster 08', 'Roster 14', 'Roster 21']);
   expect(saved.comments.some((item: { title: string }) => item.title === 'Address another view')).toBe(true);
 });
 
 test('@claim:local-autosave restores teacher edits after reload', async ({ page }) => {
+  await page.goto('/demo');
   await importOneResponse(page, 'Reload check', 'A response that will remain in this browser.');
   await page.getByLabel(/Feedback draft/).fill('Keep this teacher-written sentence after reload.');
   await page.getByLabel(/One personal next step/).fill('Add one cited example.');
@@ -185,12 +210,14 @@ test('@claim:student-text-private sends no student excerpt during the demo workf
 });
 
 test('@claim:no-automatic-feedback leaves a new response blank for the teacher', async ({ page }) => {
+  await page.goto('/demo');
   await importOneResponse(page, 'No automation', 'An original response that must not be scored or rewritten.');
   await expect(page.getByLabel(/Feedback draft/)).toHaveValue('');
   await expect(page.getByLabel(/One personal next step/)).toHaveValue('');
   await expect(page.locator('.review-sheet')).not.toContainText(/score:\s*\d|generated feedback|plagiarism result|similarity|student profile/i);
-  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('rcq_workspace:v1') ?? '{}'));
-  expect(Object.keys(saved.submissions[0]).sort()).toEqual(['commentId', 'criterion', 'draft', 'excerpt', 'id', 'label', 'nextStep', 'status', 'updatedAt']);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('demo:rcq_workspace:v1') ?? '{}'));
+  const added = saved.submissions.find((item: { label: string }) => item.label === 'No automation');
+  expect(Object.keys(added).sort()).toEqual(['commentId', 'criterion', 'draft', 'excerpt', 'id', 'label', 'nextStep', 'status', 'updatedAt']);
 });
 
 test('@claim:free-core completes review and export without an account or checkout', async ({ page }) => {
@@ -295,6 +322,12 @@ test('uses plain route titles, browser history, and a designed HTTP 404', async 
   const missing = await request.get('/not-a-real-page');
   expect(missing.status()).toBe(404);
   expect(await missing.text()).toContain('<h1>Page not found</h1>');
+  const missingPage = await page.goto('/not-a-real-page');
+  expect(missingPage?.status()).toBe(404);
+  await expect(page).toHaveTitle('Page not found — Rubric Comment Queue');
+  await expect(page.getByRole('heading', { name: 'Page not found' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Return to the queue' })).toBeVisible();
+  await expectNoSeriousAxeFindings(page);
 });
 
 test('has no serious accessibility findings across app, dialog, demo, legal, and dark states', async ({ page }) => {

@@ -10,7 +10,8 @@ teacher comment.
 Demo changes use the `demo:rcq_workspace:v1` local-storage key. Real work uses
 `rcq_workspace:v1`. Demo code never reads or writes the real key. **Reset demo**
 replaces the sample. **Start for real** deletes the demo key and opens the real
-workspace.
+workspace. Leaving the demo through the home or legal-page links also deletes
+the demo key.
 
 The demo also hides and disables encrypted-backup controls. A license return on
 the demo URL is discarded, so sample work cannot replace a licensed real

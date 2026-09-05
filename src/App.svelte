@@ -130,6 +130,8 @@
   }
 
   function setRoute(path: string) {
+    const leavingDemo = demoMode && path !== '/demo';
+    if (leavingDemo) localStorage.removeItem(DEMO_STORAGE_KEY);
     history.pushState({}, '', path);
     route = path;
     loadRouteWorkspace();
@@ -395,6 +397,8 @@
     const goOnline = () => { online = true; verifyLicense(); };
     const goOffline = () => online = false;
     const goBack = () => {
+      const leavingDemo = demoMode && location.pathname !== '/demo';
+      if (leavingDemo) localStorage.removeItem(DEMO_STORAGE_KEY);
       route = location.pathname;
       loadRouteWorkspace();
       if (!demoMode) restoreLicenseForRealWorkspace();

@@ -11,9 +11,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use sqlx::{
-    migrate::MigrateError,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
-    Connection, SqliteConnection, SqlitePool,
+    SqlitePool,
 };
 use std::{
     env,
@@ -37,6 +36,7 @@ use tracing::{info, warn};
 
 const PRODUCT_SLUG: &str = "rubric-comment-queue";
 const MAX_BACKUP_BYTES: usize = 5_000_000;
+const INITIAL_SCHEMA: &str = include_str!("../migrations/202608270001_init.sql");
 
 #[derive(Clone)]
 struct AppState {
@@ -118,17 +118,14 @@ async fn main() {
     if let Some(path) = sqlite_parent(&database_url) {
         std::fs::create_dir_all(path).expect("database directory must be writable");
     }
+    recover_interrupted_empty_database(&database_url)
+        .expect("empty database recovery must be writable");
     let options = SqliteConnectOptions::from_str(&database_url)
         .expect("valid SQLite database URL")
         .busy_timeout(Duration::from_secs(30));
-    migrate_database(&options)
+    let pool = open_database(&options)
         .await
-        .expect("database migrations after retry window");
-    let pool = SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect_with(options)
-        .await
-        .expect("database connection");
+        .expect("database schema after retry window");
     let (billing_base, billing_api_base_source) =
         env_or_default("BILLING_API_BASE", "https://api.sociobot.in/api/v1");
     let (frontend, frontend_dir_source) = env_or_default("FRONTEND_DIR", "dist");
@@ -195,24 +192,71 @@ fn sqlite_parent(url: &str) -> Option<PathBuf> {
         .filter(|parent| !parent.as_os_str().is_empty())
 }
 
-async fn migrate_database(options: &SqliteConnectOptions) -> Result<(), MigrateError> {
-    const ATTEMPTS: u8 = 12;
-    for attempt in 1..=ATTEMPTS {
-        let mut connection = SqliteConnection::connect_with(options)
-            .await
-            .map_err(MigrateError::Execute)?;
-        let result = sqlx::migrate!().run(&mut connection).await;
-        let _ = connection.close().await;
-        match result {
-            Ok(()) => return Ok(()),
-            Err(_error) if attempt < ATTEMPTS => {
-                warn!(attempt, "database migration is busy; retrying");
-                tokio::time::sleep(Duration::from_secs(2)).await;
+/// A killed first boot can leave a zero-byte SQLite file and its rollback
+/// journal on a network mount. There is no data in that state. Remove only
+/// those empty-initialization artifacts before opening the database again.
+fn recover_interrupted_empty_database(url: &str) -> std::io::Result<bool> {
+    let Some(path) = sqlite_path(url) else {
+        return Ok(false);
+    };
+    let Ok(metadata) = std::fs::metadata(&path) else {
+        return Ok(false);
+    };
+    if metadata.len() != 0 {
+        return Ok(false);
+    }
+
+    for suffix in ["-journal", "-wal", "-shm"] {
+        let sidecar = PathBuf::from(format!("{}{suffix}", path.display()));
+        match std::fs::remove_file(&sidecar) {
+            Ok(()) => {
+                warn!(path = %sidecar.display(), "removed an interrupted empty-database sidecar")
             }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error),
         }
     }
-    unreachable!("migration retry loop always returns")
+    std::fs::remove_file(&path)?;
+    warn!(path = %path.display(), "removed an interrupted zero-byte database");
+    Ok(true)
+}
+
+fn sqlite_path(url: &str) -> Option<PathBuf> {
+    let path = url.strip_prefix("sqlite://")?.split('?').next()?;
+    if path == ":memory:" {
+        None
+    } else {
+        Some(PathBuf::from(path))
+    }
+}
+
+/// The deployed SQLite file is on the fleet's single-writer Azure Files
+/// mount. SQLx's migration transaction can strand a rollback journal when a
+/// revision is replaced during first boot. The initial schema is idempotent,
+/// so applying it as individual autocommit statements avoids that failure and
+/// retains the migration file as the schema source of truth.
+async fn open_database(options: &SqliteConnectOptions) -> Result<SqlitePool, sqlx::Error> {
+    const ATTEMPTS: u8 = 12;
+    for attempt in 1..=ATTEMPTS {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect_with(options.clone())
+            .await?;
+        let result = sqlx::raw_sql(INITIAL_SCHEMA).execute(&pool).await;
+        match result {
+            Ok(_) => return Ok(pool),
+            Err(error) if attempt < ATTEMPTS => {
+                warn!(attempt, %error, "database schema setup failed; retrying");
+                pool.close().await;
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+            Err(error) => {
+                pool.close().await;
+                return Err(error);
+            }
+        }
+    }
+    unreachable!("database retry loop always returns")
 }
 
 fn build_router(state: AppState, frontend: PathBuf) -> Router {
@@ -792,12 +836,8 @@ mod tests {
                 data_mount.path().join("rubric-comment-queue.db").display()
             )
         );
-        let first = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect(&url)
-            .await
-            .unwrap();
-        sqlx::migrate!().run(&first).await.unwrap();
+        let options = SqliteConnectOptions::from_str(&url).unwrap();
+        let first = open_database(&options).await.unwrap();
         let day = "2099-01-01";
         sqlx::query("INSERT INTO pageviews(day, count) VALUES(?, 3)")
             .bind(day)
@@ -806,11 +846,7 @@ mod tests {
             .unwrap();
         first.close().await;
 
-        let restarted = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect(&url)
-            .await
-            .unwrap();
+        let restarted = open_database(&options).await.unwrap();
         let count: i64 = sqlx::query_scalar("SELECT count FROM pageviews WHERE day = ?")
             .bind(day)
             .fetch_one(&restarted)
@@ -820,16 +856,44 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn concurrent_startup_migrations_recover_from_sqlite_lock_contention() {
+    async fn concurrent_schema_setup_recovers_from_sqlite_lock_contention() {
         let dir = tempdir().unwrap();
         let database = dir.path().join("concurrent-start.db");
         let url = format!("sqlite://{}?mode=rwc", database.display());
         let first = SqliteConnectOptions::from_str(&url).unwrap();
         let second = SqliteConnectOptions::from_str(&url).unwrap();
         let (first_result, second_result) =
-            tokio::join!(migrate_database(&first), migrate_database(&second));
+            tokio::join!(open_database(&first), open_database(&second));
         assert!(first_result.is_ok());
         assert!(second_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn interrupted_empty_database_is_recovered_without_touching_data() {
+        let dir = tempdir().unwrap();
+        let database = dir.path().join("interrupted.db");
+        let journal = PathBuf::from(format!("{}-journal", database.display()));
+        std::fs::write(&database, []).unwrap();
+        std::fs::write(&journal, [0_u8; 512]).unwrap();
+        let url = format!("sqlite://{}?mode=rwc", database.display());
+
+        assert!(recover_interrupted_empty_database(&url).unwrap());
+        assert!(!database.exists());
+        assert!(!journal.exists());
+
+        let options = SqliteConnectOptions::from_str(&url).unwrap();
+        let pool = open_database(&options).await.unwrap();
+        let tables: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('pageviews', 'encrypted_backups')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(tables, 2);
+        pool.close().await;
+
+        assert!(!recover_interrupted_empty_database(&url).unwrap());
+        assert!(database.metadata().unwrap().len() > 0);
     }
 
     #[tokio::test]
