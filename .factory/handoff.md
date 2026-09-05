@@ -1,5 +1,24 @@
 # Handoff — Rubric Comment Queue
 
+## Review 1 — 2026-09-05 — **FAIL**
+
+Implementation candidate `5256a202f522f0290edae7131ec7b92046de0aa3`
+was reviewed against documentation baseline `d33fe129f08c44b75314902ee77ca56229e5b955`.
+Live health reports report-only build `2f688865eb09557e883d60919b2e7b0253657a78`;
+the live JS and CSS are byte-for-byte equal to the clean candidate build.
+
+**Verdict: FAIL — 8 findings and 23 untested public claims.** The manual
+teacher workflow, local reload, copy/CSV, offline shell, keyboard paths, axe,
+rate limiting, and clean source gates pass. Release is blocked by the absent and
+non-isolated sample demo, broken $29 checkout, SQLite configured for `/app/data`
+instead of the fleet `/data` mount, and the missing claims manifest. First-screen
+copy/structure, route titles/metadata/404, four mobile target sizes, 16 px mobile
+body type, and the pinned Rust image also fail their contracts.
+
+Full evidence, all earlier finding dispositions, commands, and retest scope are
+in `.factory/review-1.md`. No product code was changed. Review screenshots and
+supporting artifacts are in `/work/.evidence/`.
+
 ## Independent verification 3 — 2026-08-28 — **FAIL**
 
 Candidate `2f688865eb09557e883d60919b2e7b0253657a78` is live at
