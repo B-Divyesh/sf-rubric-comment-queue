@@ -56,8 +56,9 @@ docker run --rm -p 8080:8080 -v rcq-data:/data rubric-comment-queue
 ```
 
 The container starts with only `PORT` set. SQLite uses `/data` when that mount
-exists and otherwise uses `data/` beside the process working directory. Keep one
-replica for the SQLite writer. `GET /health` reports status and build identity.
+exists and selects SQLite's network-filesystem lock mode there. Without the
+mount it uses `data/` beside the process working directory. Keep one replica for
+the SQLite writer. `GET /health` reports status and build identity.
 
 Optional environment overrides are `DATABASE_URL`, `FRONTEND_DIR`, and
 `BILLING_API_BASE`. The backend rate-limits API requests by the first forwarded

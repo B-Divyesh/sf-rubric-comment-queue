@@ -181,12 +181,17 @@ fn default_database_url() -> String {
 }
 
 fn database_url_for(data_mount: &Path, fallback: &Path) -> String {
-    let path = if data_mount.is_dir() {
-        data_mount.join("rubric-comment-queue.db")
+    let (path, network_mount) = if data_mount.is_dir() {
+        (data_mount.join("rubric-comment-queue.db"), true)
     } else {
-        fallback.join("rubric-comment-queue.db")
+        (fallback.join("rubric-comment-queue.db"), false)
     };
-    format!("sqlite://{}?mode=rwc", path.display())
+    let vfs = if network_mount {
+        "&vfs=unix-dotfile"
+    } else {
+        ""
+    };
+    format!("sqlite://{}?mode=rwc{vfs}", path.display())
 }
 
 fn sqlite_parent(url: &str) -> Option<PathBuf> {
@@ -843,7 +848,7 @@ mod tests {
         assert_eq!(
             url,
             format!(
-                "sqlite://{}?mode=rwc",
+                "sqlite://{}?mode=rwc&vfs=unix-dotfile",
                 data_mount.path().join("rubric-comment-queue.db").display()
             )
         );
