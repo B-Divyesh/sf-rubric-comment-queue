@@ -36,7 +36,12 @@ use tracing::{info, warn};
 
 const PRODUCT_SLUG: &str = "rubric-comment-queue";
 const MAX_BACKUP_BYTES: usize = 5_000_000;
-const INITIAL_SCHEMA: &str = include_str!("../migrations/202608270001_init.sql");
+// Keep these idempotent statements in sync with migrations/202608270001_init.sql.
+// They are separate so SQLite finalizes each Azure Files lock before the next.
+const INITIAL_SCHEMA: [&str; 2] = [
+    "CREATE TABLE IF NOT EXISTS encrypted_backups (license_hash TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, updated_at TEXT NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS pageviews (day TEXT PRIMARY KEY NOT NULL, count INTEGER NOT NULL DEFAULT 0)",
+];
 
 #[derive(Clone)]
 struct AppState {
@@ -242,9 +247,15 @@ async fn open_database(options: &SqliteConnectOptions) -> Result<SqlitePool, sql
             .max_connections(1)
             .connect_with(options.clone())
             .await?;
-        let result = sqlx::raw_sql(INITIAL_SCHEMA).execute(&pool).await;
+        let mut result = Ok(());
+        for statement in INITIAL_SCHEMA {
+            if let Err(error) = sqlx::query(statement).execute(&pool).await {
+                result = Err(error);
+                break;
+            }
+        }
         match result {
-            Ok(_) => return Ok(pool),
+            Ok(()) => return Ok(pool),
             Err(error) if attempt < ATTEMPTS => {
                 warn!(attempt, %error, "database schema setup failed; retrying");
                 pool.close().await;
