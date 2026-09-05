@@ -10,8 +10,12 @@ use axum::{
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
-use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use sqlx::{
+    migrate::MigrateError,
+    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    SqlitePool,
+};
+use std::{env, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
 use tokio::signal;
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
@@ -107,15 +111,17 @@ async fn main() {
     if let Some(path) = sqlite_parent(&database_url) {
         std::fs::create_dir_all(path).expect("database directory must be writable");
     }
+    let options = SqliteConnectOptions::from_str(&database_url)
+        .expect("valid SQLite database URL")
+        .busy_timeout(Duration::from_secs(30));
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
-        .connect(&database_url)
+        .connect_with(options)
         .await
         .expect("database connection");
-    sqlx::migrate!()
-        .run(&pool)
+    migrate_database(&pool)
         .await
-        .expect("database migrations");
+        .expect("database migrations after retry window");
     let (billing_base, billing_api_base_source) =
         env_or_default("BILLING_API_BASE", "https://api.sociobot.in/api/v1");
     let (frontend, frontend_dir_source) = env_or_default("FRONTEND_DIR", "dist");
@@ -176,6 +182,21 @@ fn sqlite_parent(url: &str) -> Option<PathBuf> {
         .parent()
         .map(PathBuf::from)
         .filter(|parent| !parent.as_os_str().is_empty())
+}
+
+async fn migrate_database(pool: &SqlitePool) -> Result<(), MigrateError> {
+    const ATTEMPTS: u8 = 12;
+    for attempt in 1..=ATTEMPTS {
+        match sqlx::migrate!().run(pool).await {
+            Ok(()) => return Ok(()),
+            Err(_error) if attempt < ATTEMPTS => {
+                warn!(attempt, "database migration is busy; retrying");
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!("migration retry loop always returns")
 }
 
 fn build_router(state: AppState, frontend: PathBuf) -> Router {
@@ -772,6 +793,27 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 3);
+    }
+
+    #[tokio::test]
+    async fn concurrent_startup_migrations_recover_from_sqlite_lock_contention() {
+        let dir = tempdir().unwrap();
+        let database = dir.path().join("concurrent-start.db");
+        let url = format!("sqlite://{}?mode=rwc", database.display());
+        let first = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap();
+        let second = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap();
+        let (first_result, second_result) =
+            tokio::join!(migrate_database(&first), migrate_database(&second));
+        assert!(first_result.is_ok());
+        assert!(second_result.is_ok());
     }
 
     #[tokio::test]
