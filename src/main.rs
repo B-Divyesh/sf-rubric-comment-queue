@@ -3,7 +3,7 @@ use axum::{
     extract::{DefaultBodyLimit, Request, State},
     http::{header, HeaderName, HeaderValue, StatusCode},
     middleware::{self, Next},
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -13,7 +13,9 @@ use sha2::{Digest, Sha256};
 use sqlx::{sqlite::SqlitePoolOptions, SqlitePool};
 use std::{env, net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use tokio::signal;
-use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_governor::{
+    governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
+};
 use tower_http::{
     compression::CompressionLayer,
     services::{ServeDir, ServeFile},
@@ -100,10 +102,8 @@ async fn main() {
         .ok()
         .and_then(|value| value.parse().ok().map(|port| (port, "supplied")))
         .unwrap_or((8080, "default"));
-    let (database_url, database_url_source) = env_or_default(
-        "DATABASE_URL",
-        "sqlite://data/rubric-comment-queue.db?mode=rwc",
-    );
+    let default_database = default_database_url();
+    let (database_url, database_url_source) = env_or_default("DATABASE_URL", &default_database);
     if let Some(path) = sqlite_parent(&database_url) {
         std::fs::create_dir_all(path).expect("database directory must be writable");
     }
@@ -161,6 +161,15 @@ fn env_or_default(name: &str, default: &str) -> (String, &'static str) {
     }
 }
 
+fn default_database_url() -> String {
+    let path = if std::path::Path::new("/data").is_dir() {
+        "/data/rubric-comment-queue.db"
+    } else {
+        "data/rubric-comment-queue.db"
+    };
+    format!("sqlite://{path}?mode=rwc")
+}
+
 fn sqlite_parent(url: &str) -> Option<PathBuf> {
     let path = url.strip_prefix("sqlite://")?.split('?').next()?;
     PathBuf::from(path)
@@ -172,8 +181,9 @@ fn sqlite_parent(url: &str) -> Option<PathBuf> {
 fn build_router(state: AppState, frontend: PathBuf) -> Router {
     let governor = Arc::new(
         GovernorConfigBuilder::default()
-            .per_millisecond(10)
-            .burst_size(200)
+            .per_millisecond(50)
+            .burst_size(40)
+            .key_extractor(SmartIpKeyExtractor)
             .finish()
             .expect("rate limit config"),
     );
@@ -186,12 +196,45 @@ fn build_router(state: AppState, frontend: PathBuf) -> Router {
         )
         .layer(DefaultBodyLimit::max(MAX_BACKUP_BYTES + 2048))
         .layer(GovernorLayer::new(governor));
-    let static_files =
-        ServeDir::new(&frontend).fallback(ServeFile::new(frontend.join("index.html")));
+    let not_found = std::fs::read_to_string(frontend.join("404.html")).unwrap_or_else(|_| {
+        "<!doctype html><html lang=\"en\"><title>Page not found — Rubric Comment Queue</title><main><h1>Page not found</h1><a href=\"/\">Return to the queue</a></main></html>".to_owned()
+    });
     Router::new()
         .route("/health", get(health))
         .nest("/api", api)
-        .fallback_service(static_files)
+        .route_service("/", ServeFile::new(frontend.join("index.html")))
+        .route_service("/demo", ServeFile::new(frontend.join("index.html")))
+        .route_service("/privacy", ServeFile::new(frontend.join("index.html")))
+        .route_service("/terms", ServeFile::new(frontend.join("index.html")))
+        .nest_service("/assets", ServeDir::new(frontend.join("assets")))
+        .route_service("/mark.svg", ServeFile::new(frontend.join("mark.svg")))
+        .route_service(
+            "/queue-desk.webp",
+            ServeFile::new(frontend.join("queue-desk.webp")),
+        )
+        .route_service(
+            "/queue-desk-640.webp",
+            ServeFile::new(frontend.join("queue-desk-640.webp")),
+        )
+        .route_service(
+            "/social-card.webp",
+            ServeFile::new(frontend.join("social-card.webp")),
+        )
+        .route_service(
+            "/apple-touch-icon.png",
+            ServeFile::new(frontend.join("apple-touch-icon.png")),
+        )
+        .route_service(
+            "/manifest.webmanifest",
+            ServeFile::new(frontend.join("manifest.webmanifest")),
+        )
+        .route_service("/sw.js", ServeFile::new(frontend.join("sw.js")))
+        .route_service("/robots.txt", ServeFile::new(frontend.join("robots.txt")))
+        .route_service("/sitemap.xml", ServeFile::new(frontend.join("sitemap.xml")))
+        .fallback(move || {
+            let body = not_found.clone();
+            async move { (StatusCode::NOT_FOUND, Html(body)) }
+        })
         .layer(middleware::from_fn(security_headers))
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
@@ -385,9 +428,12 @@ fn cache_control_for(path: &str) -> Option<&'static str> {
     if path == "/health" || path.starts_with("/api/") {
         return Some("no-store");
     }
-    if matches!(path, "/" | "/privacy" | "/terms")
+    if matches!(path, "/" | "/demo" | "/privacy" | "/terms")
         || path.ends_with(".html")
-        || matches!(path, "/sw.js" | "/manifest.webmanifest" | "/robots.txt")
+        || matches!(
+            path,
+            "/sw.js" | "/manifest.webmanifest" | "/robots.txt" | "/sitemap.xml"
+        )
     {
         return Some(REVALIDATE);
     }
@@ -518,6 +564,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn known_routes_use_the_app_shell_and_unknown_routes_return_the_designed_404() {
+        let app = test_app().await;
+        for path in ["/", "/demo", "/privacy", "/terms"] {
+            let response = app
+                .clone()
+                .oneshot(request().uri(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK, "route {path}");
+        }
+        let response = app
+            .oneshot(request().uri("/missing-page").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&body).contains("Page not found"));
+    }
+
+    #[tokio::test]
+    async fn rate_limit_uses_forwarded_client_and_includes_retry_after() {
+        let app = test_app().await;
+        let mut limited = None;
+        for _ in 0..80 {
+            let response = app
+                .clone()
+                .oneshot(
+                    request()
+                        .uri("/api/backup")
+                        .header("x-forwarded-for", "203.0.113.8, 10.0.0.4")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            if response.status() == StatusCode::TOO_MANY_REQUESTS {
+                limited = Some(response);
+                break;
+            }
+        }
+        let limited = limited.expect("first forwarded client should exhaust its allowance");
+        assert!(limited.headers().contains_key(header::RETRY_AFTER));
+
+        let other_client = app
+            .oneshot(
+                request()
+                    .uri("/api/backup")
+                    .header("x-forwarded-for", "203.0.113.9")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(other_client.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn sends_hsts_with_the_secure_response_policy() {
         let response = test_app()
             .await
@@ -586,6 +689,89 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn encrypted_backups_are_isolated_by_license_hash() {
+        let app = test_app().await;
+        for (token, marker) in [
+            ("valid-license-tenant-a", "ciphertext-a"),
+            ("valid-license-tenant-b", "ciphertext-b"),
+        ] {
+            let payload = format!(
+                r#"{{"v":1,"salt":"abcdefghijklmnop","iv":"abcdefghijkl","data":"{marker}"}}"#
+            );
+            let response = app
+                .clone()
+                .oneshot(
+                    request()
+                        .method("PUT")
+                        .uri("/api/backup")
+                        .header("authorization", format!("Bearer {token}"))
+                        .header("content-type", "application/json")
+                        .body(Body::from(
+                            serde_json::json!({ "payload": payload }).to_string(),
+                        ))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        }
+
+        for (token, own_marker, other_marker) in [
+            ("valid-license-tenant-a", "ciphertext-a", "ciphertext-b"),
+            ("valid-license-tenant-b", "ciphertext-b", "ciphertext-a"),
+        ] {
+            let response = app
+                .clone()
+                .oneshot(
+                    request()
+                        .uri("/api/backup")
+                        .header("authorization", format!("Bearer {token}"))
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            let body = response.into_body().collect().await.unwrap().to_bytes();
+            let body = String::from_utf8_lossy(&body);
+            assert!(body.contains(own_marker));
+            assert!(!body.contains(other_marker));
+        }
+    }
+
+    #[tokio::test]
+    async fn sqlite_pageview_state_survives_pool_restart() {
+        let dir = tempdir().unwrap();
+        let database = dir.path().join("restart.db");
+        let url = format!("sqlite://{}?mode=rwc", database.display());
+        let first = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap();
+        sqlx::migrate!().run(&first).await.unwrap();
+        let day = "2099-01-01";
+        sqlx::query("INSERT INTO pageviews(day, count) VALUES(?, 3)")
+            .bind(day)
+            .execute(&first)
+            .await
+            .unwrap();
+        first.close().await;
+
+        let restarted = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&url)
+            .await
+            .unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT count FROM pageviews WHERE day = ?")
+            .bind(day)
+            .fetch_one(&restarted)
+            .await
+            .unwrap();
+        assert_eq!(count, 3);
     }
 
     #[tokio::test]

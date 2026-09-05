@@ -1,62 +1,77 @@
 # Rubric Comment Queue
 
-Rubric Comment Queue helps teachers turn batches of writing excerpts into
-specific, sendable feedback without auto-grading. Teachers choose their own
-rubric criterion and comment block, edit every draft, add a personal next step,
-then copy feedback or export the batch as CSV.
+Rubric Comment Queue is for teachers reviewing many writing responses. It keeps
+the teacher in control of every comment.
 
-The free workspace is local-first, works offline after first load, and sends no
-student writing to an AI model. A $29 one-time Desk Pass adds optional browser-
-encrypted cloud backup; the server stores only ciphertext.
+Paste excerpts or import a plain-text file up to 1 MB. Choose a rubric
+criterion, edit a teacher-written comment block, and add one personal next step.
+Copy finished feedback or export one CSV row per response. You can also download
+the complete local workspace as JSON.
 
-Live: https://rubric-comment-queue.sociobot.in
+The free workflow needs no account or payment. Queue edits stay in browser
+storage and return after reload. The installed app works offline after its first
+visit. Student writing is not sent during the free review workflow. The app
+does not score, rewrite, or generate feedback.
 
-## Develop
+Try the isolated sample at
+https://rubric-comment-queue.sociobot.in/demo. Its three responses use a
+separate `demo:` storage key and never change the real workspace.
 
-Requirements: Node 22+, Rust 1.88+, and SQLite development libraries.
+## Run locally
+
+Requirements: Node 22+, current stable Rust, and SQLite development libraries.
 
 ```sh
 npm ci
-npm run dev                    # frontend at http://localhost:5173
-
-# In a second terminal
 npm run build
-DATABASE_URL='sqlite://data/dev.db?mode=rwc' cargo run
+PORT=8080 cargo run --locked
 ```
 
-Vite proxies `/api` to port 8080 while developing. The production server serves
-the built `dist/` directory itself.
+Open `http://127.0.0.1:8080`. The server serves the built frontend.
 
-## Test and build
+For frontend development, run `npm run dev`. Vite proxies `/api` to port 8080.
+
+## Test
 
 ```sh
 npm run check
 npm test
-npm run build                  # exact frontend build command; outputs dist/
-cargo test
-cargo build --release --locked
-docker build -t rubric-comment-queue .
+npm run build
+cargo fmt --all -- --check
+cargo test --locked
+cargo clippy --all-targets --all-features --locked -- -D warnings
+npm run test:e2e
 ```
 
-Backend configuration is environment-only:
+Each public claim and its clean command are listed in
+`.factory/claims.json`. The browser tests use the isolated `/demo` route.
 
-- `PORT` — HTTP port, default `8080`
-- `DATABASE_URL` — SQLite URL, default `sqlite://data/rubric-comment-queue.db?mode=rwc`
-- `FRONTEND_DIR` — built frontend directory, default `dist`
-- `BILLING_API_BASE` — Sociobot billing base, default production API
+## Deploy
 
-Persist `/app/data` when running the container. `GET /health` includes the
-build SHA. Logs are structured JSON and shutdown is graceful.
+Build the multi-stage container from the repository root:
+
+```sh
+docker build --build-arg BUILD_SHA="$(git rev-parse HEAD)" -t rubric-comment-queue .
+docker run --rm -p 8080:8080 -v rcq-data:/data rubric-comment-queue
+```
+
+The container starts with only `PORT` set. SQLite uses `/data` when that mount
+exists and otherwise uses `data/` beside the process working directory. Keep one
+replica for the SQLite writer. `GET /health` reports status and build identity.
+
+Optional environment overrides are `DATABASE_URL`, `FRONTEND_DIR`, and
+`BILLING_API_BASE`. The backend rate-limits API requests by the first forwarded
+client address and returns `Retry-After` with HTTP 429.
 
 ## Privacy and scope
 
-The product does not score essays, detect plagiarism, profile students, or
-generate comments. Use minimal labels such as initials or roster numbers.
-Licenses are verified by Sociobot; payment details never touch this service.
-See `/privacy` and `/terms` in the app for the full policies.
+The service counts aggregate page views without analytics scripts, tracking
+cookies, or third-party fonts. See `/privacy` and `/terms` for user-facing
+policies. The server keeps aggregate counts in SQLite under `/data` in the
+deployed container.
 
-The researched scope is in `.factory/brief.json`; the original visual system
-and generated-asset provenance are in `.factory/design.md`.
+The researched scope is in `.factory/brief.json`. The visual system and asset
+provenance are in `.factory/design.md`.
 
 ## License
 

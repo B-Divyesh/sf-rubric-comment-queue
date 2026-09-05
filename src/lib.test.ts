@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { emptyWorkspace, feedbackText, parsePlainText, toCsv } from './lib';
+import { decryptWorkspace, emptyWorkspace, encryptWorkspace, feedbackText, parsePlainText, sampleWorkspace, toCsv } from './lib';
 
 describe('plain-text import', () => {
   it('splits blank-line separated excerpts and respects heading labels', () => {
@@ -18,6 +18,19 @@ describe('plain-text import', () => {
   });
 });
 
+describe('encrypted backup', () => {
+  it('@claim:browser-encryption encrypts before a workspace can be restored', async () => {
+    const workspace = sampleWorkspace();
+    workspace.submissions[0].excerpt = 'Private student sentence for encryption test.';
+    const payload = await encryptWorkspace(workspace, 'correct horse battery staple');
+    expect(payload).not.toContain('Private student sentence');
+    const envelope = JSON.parse(payload);
+    expect(Object.keys(envelope).sort()).toEqual(['data', 'iv', 'salt', 'v']);
+    expect((await decryptWorkspace(payload, 'correct horse battery staple')).submissions[0].excerpt).toBe(workspace.submissions[0].excerpt);
+    await expect(decryptWorkspace(payload, 'wrong passphrase')).rejects.toThrow('could not be opened');
+  });
+});
+
 describe('export', () => {
   it('combines personal next step without changing the draft', () => {
     const item = { ...parsePlainText('Writing')[0], draft: 'Strong opening.', nextStep: 'Add one example.' };
@@ -26,4 +39,11 @@ describe('export', () => {
   });
 
   it('starts with a populated teacher comment bank', () => expect(emptyWorkspace().comments.length).toBeGreaterThan(4));
+
+  it('ships a realistic three-stage demo queue', () => {
+    const sample = sampleWorkspace();
+    expect(sample.submissions.map((item) => item.status)).toEqual(['ready', 'draft', 'new']);
+    expect(sample.submissions.every((item) => item.excerpt.length > 80)).toBe(true);
+    expect(sample.currentId).toBe('demo-station');
+  });
 });

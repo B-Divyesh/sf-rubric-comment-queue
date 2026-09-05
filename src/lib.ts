@@ -48,6 +48,62 @@ export function emptyWorkspace(): Workspace {
   return { version: 1, submissions: [], comments: DEFAULT_COMMENTS, currentId: null, updatedAt: new Date().toISOString() };
 }
 
+/** A realistic, self-contained class sample used only by the demo namespace. */
+export function sampleWorkspace(): Workspace {
+  const now = new Date().toISOString();
+  const submissions: Submission[] = [
+    {
+      id: 'demo-garden',
+      label: 'Roster 08',
+      excerpt: 'Our school should turn the unused courtyard into a garden. Science classes could measure plant growth, and the cafeteria could compost fruit scraps. A garden would make the courtyard useful for more than passing between classes.',
+      criterion: 'Ideas & evidence',
+      commentId: 'evidence-specific',
+      draft: 'Your proposal is clear, and the science-class example gives readers a practical reason to support it. Explain how composting would help the garden so the two ideas connect.',
+      nextStep: 'Add one sentence linking cafeteria compost to healthier soil.',
+      status: 'ready',
+      updatedAt: now
+    },
+    {
+      id: 'demo-station',
+      label: 'Roster 14',
+      excerpt: 'The train doors closed before Maya reached the platform. She checked the clock, folded the damp map into her pocket, and listened for the next announcement. The interview started in twenty minutes.',
+      criterion: 'Style & voice',
+      commentId: 'voice-precise',
+      draft: 'The concrete details create urgency without explaining Maya’s feelings for the reader. Keep that restraint, and make the final sentence sound as immediate as the actions before it.',
+      nextStep: 'Replace “started” with a verb that shows the time pressure.',
+      status: 'draft',
+      updatedAt: now
+    },
+    {
+      id: 'demo-library',
+      label: 'Roster 21',
+      excerpt: 'The author repeats the image of an open window whenever Luis has a choice to make. At first he closes it, but in the final scene he leaves it open before speaking to his brother.',
+      criterion: 'Organization',
+      commentId: '',
+      draft: '',
+      nextStep: '',
+      status: 'new',
+      updatedAt: now
+    }
+  ];
+  return {
+    version: 1,
+    submissions,
+    comments: [
+      ...DEFAULT_COMMENTS,
+      {
+        id: 'demo-counterargument',
+        criterion: 'Ideas & evidence',
+        title: 'Address another view',
+        body: 'Name one reasonable concern a reader might have, then answer it with evidence from your response.',
+        custom: true
+      }
+    ],
+    currentId: 'demo-station',
+    updatedAt: now
+  };
+}
+
 export function parsePlainText(input: string): Submission[] {
   const normalized = input.replace(/\r\n/g, '\n').trim();
   if (!normalized) return [];

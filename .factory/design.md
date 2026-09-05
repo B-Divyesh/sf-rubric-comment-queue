@@ -92,3 +92,18 @@ Generated with the factory image deployment (Azure OpenAI image generation) on
 optimized WebP/AVIF derivatives live in `public/`. Generated specifically for
 this product and treated as an original project asset. Footer disclosure:
 "Illustration generated for Rubric Comment Queue."
+
+The 1200 × 630 social card is a center crop of that original illustration. The
+180 px touch icon is a hand-drawn raster version of the repository's original
+SVG check mark. Both derivatives were made locally on 2026-09-05 and use no
+third-party artwork.
+
+## Repair 3 additions
+
+The first screen now uses a left-aligned job headline followed by the sample and
+real-data actions. This keeps the marked-up desk identity while showing the
+teacher's next action before the illustration. Demo mode adds one flat amber
+status strip. Its fixed label and paired reset/exit controls make the storage
+boundary visible without adding a dashboard card. On phones the header becomes
+two rows, the sample action spans the page, and the demo intro contracts so the
+populated queue enters the first viewport.

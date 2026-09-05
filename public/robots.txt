@@ -1,2 +1,3 @@
 User-agent: *
 Allow: /
+Sitemap: https://rubric-comment-queue.sociobot.in/sitemap.xml
