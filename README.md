@@ -70,6 +70,9 @@ cookies, or third-party fonts. See `/privacy` and `/terms` for user-facing
 policies. The server keeps aggregate counts in SQLite under `/data` in the
 deployed container.
 
+This release does not sell a paid plan. The Sociobot billing product must be
+registered before a paid backup feature can be offered.
+
 The researched scope is in `.factory/brief.json`. The visual system and asset
 provenance are in `.factory/design.md`.
 

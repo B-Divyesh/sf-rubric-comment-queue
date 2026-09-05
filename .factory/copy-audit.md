@@ -7,7 +7,7 @@ fragments are included because a visitor reads them as instructions.
 | --- | ---: | --- |
 | Teacher-controlled writing feedback | 3 | Pass |
 | Review writing feedback before you send it | 7 | Pass |
-| For teachers handling many responses, this queue keeps every comment specific and under your control. | 15 | Pass |
+| For teachers handling many responses, this queue keeps every comment in a review step under your control. | 17 | Pass |
 | Try it with sample data | 5 | Pass |
 | Loads three sample responses in a separate workspace. | 8 | Pass |
 | Add my responses | 3 | Pass |
@@ -19,7 +19,7 @@ fragments are included because a visitor reads them as instructions.
 | Paste excerpts or import a plain-text file. | 7 | Pass |
 | Put three dashes on a separate line between responses. | 9 | Pass |
 | Labels are optional. | 3 | Pass |
-| Initials or roster numbers protect student privacy. | 7 | Pass |
+| Use initials or roster numbers instead of student names. | 9 | Pass |
 | How it works | 3 | Pass |
 | Add responses. | 2 | Pass |
 | Paste text or choose a plain-text file. | 7 | Pass |

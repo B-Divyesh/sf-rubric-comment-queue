@@ -15,7 +15,14 @@ use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
     Connection, SqliteConnection, SqlitePool,
 };
-use std::{env, net::SocketAddr, path::PathBuf, str::FromStr, sync::Arc, time::Duration};
+use std::{
+    env,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+    str::FromStr,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::signal;
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor, GovernorLayer,
@@ -168,12 +175,16 @@ fn env_or_default(name: &str, default: &str) -> (String, &'static str) {
 }
 
 fn default_database_url() -> String {
-    let path = if std::path::Path::new("/data").is_dir() {
-        "/data/rubric-comment-queue.db"
+    database_url_for(Path::new("/data"), Path::new("data"))
+}
+
+fn database_url_for(data_mount: &Path, fallback: &Path) -> String {
+    let path = if data_mount.is_dir() {
+        data_mount.join("rubric-comment-queue.db")
     } else {
-        "data/rubric-comment-queue.db"
+        fallback.join("rubric-comment-queue.db")
     };
-    format!("sqlite://{path}?mode=rwc")
+    format!("sqlite://{}?mode=rwc", path.display())
 }
 
 fn sqlite_parent(url: &str) -> Option<PathBuf> {
@@ -769,10 +780,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn sqlite_pageview_state_survives_pool_restart() {
-        let dir = tempdir().unwrap();
-        let database = dir.path().join("restart.db");
-        let url = format!("sqlite://{}?mode=rwc", database.display());
+    // @claim:service-storage
+    async fn claim_service_storage_uses_data_mount_and_survives_restart() {
+        let data_mount = tempdir().unwrap();
+        let fallback = tempdir().unwrap();
+        let url = database_url_for(data_mount.path(), fallback.path());
+        assert_eq!(
+            url,
+            format!(
+                "sqlite://{}?mode=rwc",
+                data_mount.path().join("rubric-comment-queue.db").display()
+            )
+        );
         let first = SqlitePoolOptions::new()
             .max_connections(1)
             .connect(&url)

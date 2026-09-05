@@ -19,7 +19,7 @@ describe('plain-text import', () => {
 });
 
 describe('encrypted backup', () => {
-  it('@claim:browser-encryption encrypts before a workspace can be restored', async () => {
+  it('@claim:passphrase-protection restores only with the right passphrase', async () => {
     const workspace = sampleWorkspace();
     workspace.submissions[0].excerpt = 'Private student sentence for encryption test.';
     const payload = await encryptWorkspace(workspace, 'correct horse battery staple');

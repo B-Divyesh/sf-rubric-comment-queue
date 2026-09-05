@@ -42,11 +42,59 @@ test('@claim:demo-isolation keeps sample changes out of the real workspace', asy
   await expect.poll(() => page.evaluate(() => localStorage.getItem('demo:rcq_workspace:v1'))).toBeNull();
 });
 
+test('demo hides licensed backup state and keeps its label visible while scrolling', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  await context.addInitScript(() => {
+    localStorage.setItem('rcq_workspace:v1', JSON.stringify({ version: 1, currentId: null, submissions: [], comments: [], updatedAt: '2026-09-05T00:00:00.000Z' }));
+    localStorage.setItem('sb_license:rubric-comment-queue', 'valid-looking-license-token');
+    localStorage.setItem('sb_license_verdict:rubric-comment-queue', JSON.stringify({ valid: true, checked: Date.now() }));
+  });
+  const page = await context.newPage();
+  const outsideRequests: string[] = [];
+  page.on('request', (request) => {
+    if (new URL(request.url()).origin !== 'http://127.0.0.1:4173') outsideRequests.push(request.url());
+  });
+  await page.goto('/demo?license=must-not-enter-demo');
+  await expect(page).toHaveURL(/\/demo$/);
+  await expect(page.getByRole('button', { name: 'Encrypted backup' })).toHaveCount(0);
+  await page.evaluate(() => scrollTo(0, Math.min(1000, document.documentElement.scrollHeight - innerHeight)));
+  await page.waitForTimeout(50);
+  const banner = await page.getByLabel('Demo controls').boundingBox();
+  expect(banner?.y).toBeLessThanOrEqual(1);
+  expect(outsideRequests).toEqual([]);
+  expect(await page.evaluate(() => localStorage.getItem('sb_license:rubric-comment-queue'))).toBe('valid-looking-license-token');
+  await context.close();
+});
+
+test('first screen states the job, audience, next action, and three facts before scrolling', async ({ page }) => {
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1440, height: 960 }]) {
+    await page.setViewportSize(viewport);
+    await page.goto('/');
+    for (const locator of [
+      page.getByRole('heading', { level: 1, name: 'Review writing feedback before you send it' }),
+      page.getByText('For teachers handling many responses', { exact: false }),
+      page.getByRole('button', { name: 'Try it with sample data' }),
+      page.getByText('Loads three sample responses in a separate workspace.'),
+      page.locator('.plain-facts')
+    ]) {
+      const box = await locator.boundingBox();
+      expect(box, 'required first-screen content should have a layout box').not.toBeNull();
+      expect(box!.y).toBeGreaterThanOrEqual(0);
+      expect(box!.y + box!.height).toBeLessThanOrEqual(viewport.height);
+    }
+  }
+});
+
 test('@claim:text-import imports a text file and rejects a file over 1 MB', async ({ page }) => {
   await page.getByRole('button', { name: 'Add my responses' }).click();
   await page.getByLabel('Choose .txt file').setInputFiles({ name: 'class.txt', mimeType: 'text/plain', buffer: Buffer.from('# Roster 31\nA file-based response.') });
   await page.getByRole('button', { name: 'Add to queue' }).click();
   await expect(page.getByRole('heading', { name: 'Roster 31' })).toBeVisible();
+  await page.getByRole('button', { name: 'Add responses' }).click();
+  const boundaryPrefix = Buffer.from('# Boundary file\n');
+  await page.getByLabel('Choose .txt file').setInputFiles({ name: 'boundary.txt', mimeType: 'text/plain', buffer: Buffer.concat([boundaryPrefix, Buffer.alloc(1_000_000 - boundaryPrefix.length, 65)]) });
+  await page.getByRole('button', { name: 'Add to queue' }).click();
+  await expect(page.getByRole('button', { name: /Boundary file/ })).toBeVisible();
   await page.getByRole('button', { name: 'Add responses' }).click();
   await page.getByLabel('Choose .txt file').setInputFiles({ name: 'too-large.txt', mimeType: 'text/plain', buffer: Buffer.alloc(1_000_001, 65) });
   await expect(page.getByRole('alert')).toContainText('over 1 MB');
@@ -140,7 +188,9 @@ test('@claim:no-automatic-feedback leaves a new response blank for the teacher',
   await importOneResponse(page, 'No automation', 'An original response that must not be scored or rewritten.');
   await expect(page.getByLabel(/Feedback draft/)).toHaveValue('');
   await expect(page.getByLabel(/One personal next step/)).toHaveValue('');
-  await expect(page.locator('.review-sheet')).not.toContainText(/score:\s*\d|generated feedback/i);
+  await expect(page.locator('.review-sheet')).not.toContainText(/score:\s*\d|generated feedback|plagiarism result|similarity|student profile/i);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('rcq_workspace:v1') ?? '{}'));
+  expect(Object.keys(saved.submissions[0]).sort()).toEqual(['commentId', 'criterion', 'draft', 'excerpt', 'id', 'label', 'nextStep', 'status', 'updatedAt']);
 });
 
 test('@claim:free-core completes review and export without an account or checkout', async ({ page }) => {
@@ -170,6 +220,48 @@ test('@claim:aggregate-pageview loads without analytics scripts or tracking cook
   expect(await context.cookies()).toEqual([]);
 });
 
+test('@claim:browser-encryption @claim:cloud-backup-controls saves, restores, and deletes only an encrypted envelope', async ({ page }) => {
+  await page.evaluate(() => {
+    localStorage.setItem('sb_license:rubric-comment-queue', 'fixture-license-token');
+    localStorage.setItem('sb_license_verdict:rubric-comment-queue', JSON.stringify({ valid: true, checked: Date.now() }));
+  });
+  await page.reload();
+  await importOneResponse(page, 'Private fixture', 'Unique student text must not appear in the upload.');
+  let uploaded = '';
+  let deleted = false;
+  await page.route('**/api/backup', async (route) => {
+    const method = route.request().method();
+    if (method === 'PUT') {
+      uploaded = route.request().postData() ?? '';
+      await route.fulfill({ status: 204 });
+    } else if (method === 'GET') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ payload: JSON.parse(uploaded).payload, updated_at: '2026-09-05T00:00:00Z' }) });
+    } else {
+      deleted = true;
+      await route.fulfill({ status: 204 });
+    }
+  });
+  await page.getByRole('button', { name: 'Encrypted backup' }).click();
+  await page.getByLabel('Backup passphrase').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Save encrypted backup' }).click();
+  await expect(page.getByRole('status')).toContainText('Encrypted backup saved');
+  const envelope = JSON.parse(JSON.parse(uploaded).payload) as Record<string, unknown>;
+  expect(Object.keys(envelope).sort()).toEqual(['data', 'iv', 'salt', 'v']);
+  expect(uploaded).not.toContain('Unique student text');
+  expect(uploaded).not.toContain('Private fixture');
+  expect(String(envelope.data).length).toBeGreaterThan(100);
+  await page.getByLabel(/Feedback draft/).fill('This change should be replaced by the saved backup.');
+  await page.getByRole('button', { name: 'Encrypted backup' }).click();
+  await page.getByLabel('Backup passphrase').fill('correct horse battery staple');
+  await page.getByRole('button', { name: 'Restore backup' }).click();
+  await expect(page.getByLabel(/Feedback draft/)).toHaveValue('');
+  await page.getByRole('button', { name: 'Encrypted backup' }).click();
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Delete cloud backup' }).click();
+  await expect.poll(() => deleted).toBe(true);
+  await expect(page.getByRole('heading', { name: 'Private fixture' })).toBeVisible();
+});
+
 test('@claim:delete-response removes only the confirmed response', async ({ page }) => {
   await page.goto('/demo');
   page.once('dialog', (dialog) => dialog.dismiss());
@@ -194,6 +286,9 @@ test('uses plain route titles, browser history, and a designed HTTP 404', async 
   await expect(page).toHaveTitle('Rubric Comment Queue — review writing feedback');
   await page.getByRole('link', { name: 'Privacy', exact: true }).first().click();
   await expect(page).toHaveTitle('Privacy — Rubric Comment Queue');
+  await expect(page.locator('link[rel="canonical"]')).toHaveAttribute('href', 'https://rubric-comment-queue.sociobot.in/privacy');
+  await expect(page.locator('meta[property="og:url"]')).toHaveAttribute('content', 'https://rubric-comment-queue.sociobot.in/privacy');
+  await expect(page.locator('meta[name="twitter:title"]')).toHaveAttribute('content', 'Privacy — Rubric Comment Queue');
   await expect(page.getByRole('heading', { name: 'Privacy for your feedback queue' })).toBeFocused();
   await page.goBack();
   await expect(page).toHaveTitle('Rubric Comment Queue — review writing feedback');

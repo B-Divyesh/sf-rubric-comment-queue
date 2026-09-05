@@ -56,11 +56,15 @@
   }
 
   function syncMetadata() {
+    const canonical = `https://rubric-comment-queue.sociobot.in${route === '/' ? '/' : route}`;
     document.title = titleFor(route);
     document.querySelector<HTMLMetaElement>('meta[name="description"]')?.setAttribute('content', descriptionFor(route));
-    document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute('href', `https://rubric-comment-queue.sociobot.in${route === '/' ? '/' : route}`);
+    document.querySelector<HTMLLinkElement>('link[rel="canonical"]')?.setAttribute('href', canonical);
     document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.setAttribute('content', titleFor(route));
     document.querySelector<HTMLMetaElement>('meta[property="og:description"]')?.setAttribute('content', descriptionFor(route));
+    document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.setAttribute('content', canonical);
+    document.querySelector<HTMLMetaElement>('meta[name="twitter:title"]')?.setAttribute('content', titleFor(route));
+    document.querySelector<HTMLMetaElement>('meta[name="twitter:description"]')?.setAttribute('content', descriptionFor(route));
   }
 
   function announce(message: string) {
@@ -89,8 +93,22 @@
 
   function loadRouteWorkspace() {
     demoMode = route === '/demo';
-    if (demoMode) workspace = readWorkspace(DEMO_STORAGE_KEY, sampleWorkspace);
+    if (demoMode) {
+      workspace = readWorkspace(DEMO_STORAGE_KEY, sampleWorkspace);
+      paid = false;
+    }
     else if (route === '/') workspace = readWorkspace(REAL_STORAGE_KEY, emptyWorkspace);
+  }
+
+  function restoreLicenseForRealWorkspace() {
+    if (demoMode) {
+      paid = false;
+      return;
+    }
+    license = localStorage.getItem(LICENSE_KEY) ?? '';
+    const cached = cachedLicenseVerdict();
+    paid = Boolean(license && cached?.valid);
+    if (license) verifyLicense();
   }
 
   function persist(message?: string) {
@@ -115,6 +133,7 @@
     history.pushState({}, '', path);
     route = path;
     loadRouteWorkspace();
+    if (hydrated && !demoMode) restoreLicenseForRealWorkspace();
     syncMetadata();
     focusPageHeading();
   }
@@ -304,7 +323,7 @@
   }
 
   async function cloudBackup(mode: 'save' | 'restore') {
-    if (!paid || !license) return;
+    if (demoMode || !paid || !license) return;
     backupBusy = true;
     licenseNote = '';
     try {
@@ -331,7 +350,7 @@
   }
 
   async function deleteCloudBackup() {
-    if (!paid || !license || !confirm('Delete the encrypted cloud backup? Your local workspace will stay on this device.')) return;
+    if (demoMode || !paid || !license || !confirm('Delete the encrypted cloud backup? Your local workspace will stay on this device.')) return;
     backupBusy = true;
     try {
       const response = await fetch('/api/backup', { method: 'DELETE', headers: { authorization: `Bearer ${license}` } });
@@ -359,20 +378,26 @@
     syncMetadata();
     const params = new URLSearchParams(location.search);
     const returned = params.get('license');
-    if (returned) {
+    if (returned && !demoMode) {
       localStorage.setItem(LICENSE_KEY, returned);
       params.delete('license');
       history.replaceState({}, '', `${route}${params.size ? `?${params}` : ''}${location.hash}`);
+    } else if (returned) {
+      params.delete('license');
+      history.replaceState({}, '', `${route}${params.size ? `?${params}` : ''}${location.hash}`);
     }
-    license = returned ?? localStorage.getItem(LICENSE_KEY) ?? '';
-    const cached = cachedLicenseVerdict();
-    paid = Boolean(license && cached?.valid);
-    if (license) verifyLicense();
+    if (!demoMode) {
+      license = returned ?? localStorage.getItem(LICENSE_KEY) ?? '';
+      const cached = cachedLicenseVerdict();
+      paid = Boolean(license && cached?.valid);
+      if (license) verifyLicense();
+    }
     const goOnline = () => { online = true; verifyLicense(); };
     const goOffline = () => online = false;
     const goBack = () => {
       route = location.pathname;
       loadRouteWorkspace();
+      if (!demoMode) restoreLicenseForRealWorkspace();
       syncMetadata();
       focusPageHeading();
     };
@@ -403,7 +428,7 @@
     <a href="/privacy" on:click={(event) => followRoute(event, '/privacy')}>Privacy</a>
     <span class:offline={!online} class="connection"><span aria-hidden="true">●</span> {online ? 'Local save on' : 'Offline · local save on'}</span>
     <button class="icon-button" type="button" on:click={toggleTheme} aria-label={`Use ${theme === 'light' ? 'dark' : 'light'} theme`}>{theme === 'light' ? '◐' : '◑'}</button>
-    {#if paid}<button class="outline small" type="button" on:click={() => backupDialog.showModal()}>Encrypted backup</button>{/if}
+    {#if paid && !demoMode}<button class="outline small" type="button" on:click={() => backupDialog.showModal()}>Encrypted backup</button>{/if}
   </nav>
 </header>
 
@@ -446,7 +471,7 @@
       <div class="intro-copy">
         <p class="eyebrow">Teacher-controlled writing feedback</p>
         <h1 id="page-title" tabindex="-1">Review writing feedback before you send it</h1>
-        <p class="audience">For teachers handling many responses, this queue keeps every comment specific and under your control.</p>
+        <p class="audience">For teachers handling many responses, this queue keeps every comment in a review step under your control.</p>
         <div class="hero-actions">
           {#if demoMode}
             <button class="primary" type="button" on:click={resetDemo}>Reset sample data</button><button class="outline" type="button" on:click={startForReal}>Start for real</button>
@@ -464,7 +489,7 @@
       {#if workspace.submissions.length === 0}
         <div class="empty-state">
           <picture><source media="(max-width: 640px)" srcset="/queue-desk-640.webp" /><img src="/queue-desk.webp" width="960" height="640" alt="Paper excerpts move through a blue rubric tray and an orange teacher stamp into a feedback stack" fetchpriority="high" /></picture>
-          <div class="empty-copy"><h3>Add responses to start reviewing</h3><p>Paste excerpts or import a plain-text file. Put three dashes on a separate line between responses.</p><p>Labels are optional. Initials or roster numbers protect student privacy.</p><button class="primary" type="button" on:click={openImport}>Add responses <span aria-hidden="true">→</span></button></div>
+          <div class="empty-copy"><h3>Add responses to start reviewing</h3><p>Paste excerpts or import a plain-text file. Put three dashes on a separate line between responses.</p><p>Labels are optional. Use initials or roster numbers instead of student names.</p><button class="primary" type="button" on:click={openImport}>Add responses <span aria-hidden="true">→</span></button></div>
         </div>
       {:else}
         <div class="workspace">
@@ -502,8 +527,8 @@
 
 <footer>
   <p><strong>Review teacher-written feedback before export.</strong></p>
-  <nav aria-label="Footer navigation"><a href="/privacy" on:click={(event) => followRoute(event, '/privacy')}>Privacy</a><a href="/terms" on:click={(event) => followRoute(event, '/terms')}>Terms</a><a href="https://sociobot.in" rel="noreferrer">Built by Param Factory</a></nav>
-  <p>v1.1.0 · Illustration generated for Rubric Comment Queue.</p>
+  <nav aria-label="Footer navigation"><a href="/privacy" on:click={(event) => followRoute(event, '/privacy')}>Privacy</a><a href="/terms" on:click={(event) => followRoute(event, '/terms')}>Terms</a><a href="https://sociobot.in" rel="noreferrer" aria-label="Built by Param Factory (external site)">Built by Param Factory <span aria-hidden="true">↗</span></a></nav>
+  <p>v1.1.1 · Illustration generated for Rubric Comment Queue.</p>
 </footer>
 
 <dialog bind:this={importDialog} aria-labelledby="import-title"><form method="dialog" on:submit={(event) => event.preventDefault()}><div class="dialog-head"><div><p class="kicker">Add to queue</p><h2 id="import-title">Import responses</h2></div><button class="icon-button" type="button" on:click={() => importDialog.close()} aria-label="Close import dialog">×</button></div><p>Paste plain text below. Put an optional <code># label</code> on the first line.</p><p>Put three dashes on a separate line between responses.</p><label class="file-button" for="text-file">Choose .txt file</label><input id="text-file" class="visually-hidden" type="file" accept=".txt,text/plain" on:change={readFile} /><label for="import-text">Response text</label><textarea id="import-text" bind:value={importText} rows="10" aria-describedby={importError ? 'import-error' : 'import-help'} placeholder="# Roster 12&#10;The opening paragraph…&#10;&#10;---&#10;&#10;# Roster 13&#10;In this response…"></textarea><small id="import-help">Maximum file size: 1 MB.</small>{#if importError}<p id="import-error" class="error" role="alert">{importError}</p>{/if}<div class="dialog-actions"><button class="outline" type="button" on:click={() => importDialog.close()}>Cancel</button><button class="primary" type="button" on:click={runImport}>Add to queue</button></div></form></dialog>

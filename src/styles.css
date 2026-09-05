@@ -204,7 +204,7 @@ footer nav { display: flex; flex-wrap: wrap; align-items: center; }
   .connection { position: absolute; top: 68px; right: 12px; min-height: 32px; padding: 3px 8px; border: 1px solid var(--ink); background: var(--sheet); }
   .topbar nav { gap: 8px; }
   .topbar nav .small { padding: 7px 9px; }
-  .demo-banner { position: static; align-items: flex-start; flex-direction: column; gap: 6px; }
+  .demo-banner { position: sticky; align-items: flex-start; flex-direction: column; gap: 6px; }
   .app-shell { padding: 42px 16px 64px; }
   .intro { display: block; margin-bottom: 26px; }
   .intro h1 { max-width: 560px; }
