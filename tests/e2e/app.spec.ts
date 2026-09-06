@@ -27,7 +27,7 @@ test.beforeEach(async ({ page }) => {
   await page.reload();
 });
 
-test('@claim:demo-isolation keeps sample changes out of the real workspace', async ({ page }) => {
+test('@claim:demo-isolation @claim:clear-local-data keeps sample changes out of the real workspace', async ({ page }) => {
   await importOneResponse(page, 'Real roster 05', 'This is the teacher’s real local response.');
   await page.getByRole('button', { name: 'Try it with sample data' }).click();
   await expect(page).toHaveURL(/\/demo$/);
@@ -41,6 +41,9 @@ test('@claim:demo-isolation keeps sample changes out of the real workspace', asy
   await expect(page.getByRole('heading', { name: 'Real roster 05' })).toBeVisible();
   await expect(page.getByLabel(/Feedback draft/)).toHaveValue('');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('demo:rcq_workspace:v1'))).toBeNull();
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Add responses to start reviewing' })).toBeVisible();
 });
 
 test('leaving the demo from navigation discards the sample namespace', async ({ page }) => {
@@ -276,6 +279,7 @@ test('@claim:browser-encryption @claim:cloud-backup-controls saves, restores, an
   expect(Object.keys(envelope).sort()).toEqual(['data', 'iv', 'salt', 'v']);
   expect(uploaded).not.toContain('Unique student text');
   expect(uploaded).not.toContain('Private fixture');
+  expect(uploaded).not.toContain('correct horse battery staple');
   expect(String(envelope.data).length).toBeGreaterThan(100);
   await page.getByLabel(/Feedback draft/).fill('This change should be replaced by the saved backup.');
   await page.getByRole('button', { name: 'Encrypted backup' }).click();

@@ -852,6 +852,14 @@ mod tests {
                 data_mount.path().join("rubric-comment-queue.db").display()
             )
         );
+        let missing_mount = fallback.path().join("missing-data-mount");
+        assert_eq!(
+            database_url_for(&missing_mount, fallback.path()),
+            format!(
+                "sqlite://{}?mode=rwc",
+                fallback.path().join("rubric-comment-queue.db").display()
+            )
+        );
         let options = SqliteConnectOptions::from_str(&url).unwrap();
         let first = open_database(&options).await.unwrap();
         let day = "2099-01-01";
